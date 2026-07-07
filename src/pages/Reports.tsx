@@ -7,6 +7,7 @@ import { lusakaDayRange, lusakaWeekRange, lusakaMonthRange, lusakaDateLabel } fr
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import ConnectionStatus from "@/components/ConnectionStatus";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useBusiness } from "@/hooks/useBusiness";
@@ -16,12 +17,16 @@ import { useToast } from "@/hooks/use-toast";
 
 type Period = "today" | "week" | "month";
 
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
 const Reports = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuthContext();
   const { business, isLoading: bizLoading } = useBusiness(user?.id);
   const [period, setPeriod] = useState<Period>("today");
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [loading, setLoading] = useState(true);
   const [sales, setSales] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -34,8 +39,8 @@ const Reports = () => {
   const range = useMemo(() => {
     if (period === "today") return lusakaDayRange();
     if (period === "week") return lusakaWeekRange();
-    return lusakaMonthRange();
-  }, [period]);
+    return lusakaMonthRange(new Date(selectedYear, selectedMonth, 1));
+  }, [period, selectedMonth, selectedYear]);
 
 
   const fetchAll = async () => {
@@ -175,9 +180,30 @@ const Reports = () => {
             <TabsList className="grid grid-cols-3 w-full">
               <TabsTrigger value="today">Today</TabsTrigger>
               <TabsTrigger value="week">This Week</TabsTrigger>
-              <TabsTrigger value="month">This Month</TabsTrigger>
+              <TabsTrigger value="month">{MONTHS[selectedMonth]} {selectedYear}</TabsTrigger>
             </TabsList>
           </Tabs>
+
+          {period === "month" && (
+            <div className="flex gap-2">
+              <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
+                <SelectTrigger className="flex-1"><SelectValue placeholder="Month" /></SelectTrigger>
+                <SelectContent>
+                  {MONTHS.map((m, i) => (
+                    <SelectItem key={i} value={String(i)}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+                <SelectTrigger className="w-28"><SelectValue placeholder="Year" /></SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 10 }, (_, i) => selectedYear - 5 + i).map((y) => (
+                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {loading ? (
             <p className="text-center text-sm text-muted-foreground py-8">Loading...</p>

@@ -402,12 +402,34 @@ const Debtors = () => {
         .maybeSingle();
 
       if (debtorData?.sale_id) {
-        await (supabase.rpc as any)('record_sale_payment', {
-          p_sale_id: debtorData.sale_id,
-          p_amount: amount,
-          p_payment_method: 'cash',
-          p_notes: 'Payment via debtors',
-        }).catch((e: any) => console.error('Failed to update linked sale payment:', e));
+        try {
+          const { data: saleRow } = await supabase
+            .from('sales')
+            .select('amount_paid, total')
+            .eq('id', debtorData.sale_id)
+            .maybeSingle();
+
+          if (saleRow) {
+            const currentPaid = Number(saleRow.amount_paid || 0);
+            const newSalePaid = Math.min(currentPaid + amount, Number(saleRow.total || 0));
+
+            await supabase.from('sale_payments').insert({
+              sale_id: debtorData.sale_id,
+              business_id: business!.id,
+              amount,
+              payment_method: 'cash',
+              notes: 'Payment via debtors',
+              recorded_by: user!.id,
+            });
+
+            await supabase
+              .from('sales')
+              .update({ amount_paid: newSalePaid })
+              .eq('id', debtorData.sale_id);
+          }
+        } catch (e: any) {
+          console.error('Failed to update linked sale payment:', e);
+        }
       }
 
       toast({ title: 'Payment Recorded' });
