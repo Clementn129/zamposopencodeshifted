@@ -92,7 +92,8 @@ const Debtors = () => {
           .from('debtors')
           .select('*')
           .eq('business_id', business.id)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(1000);
 
         if (error) throw error;
 
@@ -464,19 +465,21 @@ const Debtors = () => {
           .maybeSingle();
 
         if (saleData?.items && Array.isArray(saleData.items)) {
-          for (const item of saleData.items as any[]) {
-            const { data: product } = await supabase
+          const items = saleData.items as any[];
+          const productIds = [...new Set(items.map((i: any) => i.productId).filter(Boolean))];
+          if (productIds.length > 0) {
+            const { data: products } = await supabase
               .from('products')
-              .select('stock')
-              .eq('id', item.productId)
-              .maybeSingle();
-
-            if (product) {
-              const newStock = Number(product.stock || 0) + (item.quantity || 0);
-              await supabase
-                .from('products')
-                .update({ stock: newStock })
-                .eq('id', item.productId);
+              .select('id, stock')
+              .in('id', productIds);
+            if (products) {
+              const stockMap = Object.fromEntries(products.map((p: any) => [p.id, Number(p.stock ?? 0)]));
+              const updates = items
+                .map((item: any) => item.productId && stockMap[item.productId] !== undefined
+                  ? supabase.from('products').update({ stock: stockMap[item.productId] + (item.quantity || 0) }).eq('id', item.productId)
+                  : null
+                ).filter(Boolean);
+              await Promise.all(updates);
             }
           }
         }

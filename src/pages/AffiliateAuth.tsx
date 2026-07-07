@@ -114,38 +114,40 @@ const AffiliateAuth = () => {
         return;
       }
 
-      // Wait for the account to be created, then create affiliate profile
-      setTimeout(async () => {
+      // If email confirmation required, navigate away; otherwise create affiliate profile immediately
+      if (data?.user?.identities?.length === 0) {
+        toast({ title: 'Check your email', description: 'Please confirm your email before setting up your affiliate account.' });
+        navigate('/affiliate-auth');
+        return;
+      }
+      const sessionUser = data?.user ?? (await supabase.auth.getSession()).data?.session?.user;
+      if (sessionUser) {
         try {
-          const { data: session } = await supabase.auth.getSession();
-          if (session?.session?.user) {
-            // Generate affiliate code
-            const { data: codeData, error: codeErr } = await supabase.rpc('generate_affiliate_code');
-            if (codeErr) throw codeErr;
+          const { data: codeData, error: codeErr } = await supabase.rpc('generate_affiliate_code');
+          if (codeErr) throw codeErr;
 
-            const { error: affErr } = await supabase
-              .from('affiliates')
-              .insert({
-                user_id: session.session.user.id,
-                affiliate_code: codeData,
-                status: 'active',
-                full_name: fullName.trim(),
-                phone: phone.trim() || null,
-                payout_method: payoutMethod,
-                payout_number: payoutNumber.trim(),
-                payout_name: payoutName.trim() || null,
-              });
+          const { error: affErr } = await supabase
+            .from('affiliates')
+            .insert({
+              user_id: sessionUser.id,
+              affiliate_code: codeData,
+              status: 'active',
+              full_name: fullName.trim(),
+              phone: phone.trim() || null,
+              payout_method: payoutMethod,
+              payout_number: payoutNumber.trim(),
+              payout_name: payoutName.trim() || null,
+            });
 
-            if (affErr) throw affErr;
+          if (affErr) throw affErr;
 
-            toast({ title: 'Welcome to the Affiliate Program!', description: 'Your account has been created.' });
-            navigate('/affiliate');
-          }
+          toast({ title: 'Welcome to the Affiliate Program!', description: 'Your account has been created.' });
+          navigate('/affiliate');
         } catch (err: any) {
           console.error('Error creating affiliate profile:', err);
           toast({ variant: 'destructive', title: 'Error', description: 'Account created but affiliate setup failed. Please contact support.' });
         }
-      }, 2000);
+      }
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Something went wrong.' });
       setIsLoading(false);

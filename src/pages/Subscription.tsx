@@ -39,14 +39,13 @@ const Subscription = () => {
 
   useEffect(() => {
     if (!business?.id) return;
-    void (async () => {
-      const { count } = await supabase
-        .from("business_cashiers")
-        .select("id", { count: "exact", head: true })
-        .eq("business_id", business.id)
-        .eq("is_active", true);
-      setActiveCashiers(count ?? 0);
-    })();
+    supabase
+      .from("business_cashiers")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", business.id)
+      .eq("is_active", true)
+      .then(({ count }) => setActiveCashiers(count ?? 0))
+      .catch(() => {});
   }, [business?.id]);
 
   const tier = useMemo(() => resolvePricingTier(activeCashiers, business?.planTier), [activeCashiers, business?.planTier]);

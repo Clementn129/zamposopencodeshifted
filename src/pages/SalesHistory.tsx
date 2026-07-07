@@ -494,20 +494,20 @@ const SalesHistory = () => {
 
     setDeleting(sale.id);
     try {
-      // Return stock to products
-      for (const item of sale.items) {
-        const { data: product } = await supabase
+      // Return stock to products (batched, avoids N+1)
+      const productIds = [...new Set(sale.items.map((i: any) => i.productId).filter(Boolean))];
+      if (productIds.length > 0) {
+        const { data: products } = await supabase
           .from("products")
-          .select("stock")
-          .eq("id", item.productId)
-          .maybeSingle();
-
-        if (product) {
-          const newStock = Number(product.stock) + item.quantity;
-          await supabase
-            .from("products")
-            .update({ stock: newStock })
-            .eq("id", item.productId);
+          .select("id, stock")
+          .in("id", productIds);
+        if (products) {
+          const stockMap = Object.fromEntries(products.map((p: any) => [p.id, Number(p.stock ?? 0)]));
+          const updates = sale.items.map((item: any) => item.productId && stockMap[item.productId] !== undefined
+            ? supabase.from("products").update({ stock: stockMap[item.productId] + (item.quantity || 0) }).eq("id", item.productId)
+            : null
+          ).filter(Boolean);
+          await Promise.all(updates);
         }
       }
 

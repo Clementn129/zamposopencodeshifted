@@ -46,29 +46,37 @@ const Reports = () => {
   const fetchAll = async () => {
     if (!business?.id) return;
     setLoading(true);
-    const [{ data: s }, { data: e }, { data: d }] = await Promise.all([
-      supabase
-        .from("sales")
-        .select("id, total, items, tax_amount, payment_method, cashier_name, status, created_at")
-        .eq("business_id", business.id)
-        .gte("created_at", range.from.toISOString())
-        .lte("created_at", range.to.toISOString()),
-      supabase
-        .from("expenses")
-        .select("id, amount, category, expense_date")
-        .eq("business_id", business.id)
-        .gte("expense_date", lusakaDateLabel(range.from))
-        .lte("expense_date", lusakaDateLabel(range.to)),
-      supabase
-        .from("debtors")
-        .select("id, balance_due, status")
-        .eq("business_id", business.id)
-        .limit(5000),
-    ]);
-    setSales(s ?? []);
-    setExpenses(e ?? []);
-    setDebtors(d ?? []);
-    setLoading(false);
+    try {
+      const [{ data: s }, { data: e }, { data: d }] = await Promise.all([
+        supabase
+          .from("sales")
+          .select("id, total, items, tax_amount, payment_method, cashier_name, status, created_at")
+          .eq("business_id", business.id)
+          .gte("created_at", range.from.toISOString())
+          .lte("created_at", range.to.toISOString())
+          .limit(1000),
+        supabase
+          .from("expenses")
+          .select("id, amount, category, expense_date")
+          .eq("business_id", business.id)
+          .gte("expense_date", lusakaDateLabel(range.from))
+          .lte("expense_date", lusakaDateLabel(range.to))
+          .limit(1000),
+        supabase
+          .from("debtors")
+          .select("id, balance_due, status")
+          .eq("business_id", business.id)
+          .limit(5000),
+      ]);
+      setSales(s ?? []);
+      setExpenses(e ?? []);
+      setDebtors(d ?? []);
+    } catch (e: any) {
+      console.error("Failed to fetch report data:", e);
+      toast({ variant: "destructive", title: "Failed to load reports", description: e?.message ?? "Could not load data" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

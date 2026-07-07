@@ -115,27 +115,31 @@ const AdminDashboard = () => {
       const { data: biz, error: bizErr } = await supabase
         .from("businesses")
         .select("id,name,user_id,payment_code,subscription_status,subscription_expires_at,is_locked,last_sync_at,created_at,phone,email,address,plan_tier")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(200);
       if (bizErr) throw bizErr;
       setBusinesses((biz ?? []) as BusinessRow[]);
 
       const { data: pay, error: payErr } = await supabase
         .from("payments")
         .select("id,business_id,amount,status,notes,created_at")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(200);
       if (payErr) throw payErr;
       setPayments((pay ?? []) as PaymentRow[]);
 
       const { data: not, error: notErr } = await supabase
         .from("notices")
         .select("id,title,message,is_active,starts_at,ends_at,created_at,target_business_id")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(100);
       if (notErr) throw notErr;
       setNotices((not ?? []) as NoticeRow[]);
 
       const { data: prof, error: profErr } = await supabase
         .from("profiles")
-        .select("user_id,full_name,email");
+        .select("user_id,full_name,email")
+        .limit(500);
       if (profErr) throw profErr;
       setProfiles((prof ?? []) as ProfileRow[]);
     } catch (e: any) {

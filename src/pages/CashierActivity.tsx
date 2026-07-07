@@ -41,42 +41,48 @@ const CashierActivity = () => {
   const load = async () => {
     if (!business?.id) return;
     setLoading(true);
-    const { from, to } = lusakaDayRange();
-    const [{ data: cs }, { data: sales }] = await Promise.all([
-      supabase
-        .from("business_cashiers")
-        .select("id, auth_user_id, username, display_name, is_active, last_login_at")
-        .eq("business_id", business.id)
-        .order("created_at"),
-      supabase
-        .from("sales")
-        .select("cashier_id, total, status")
-        .eq("business_id", business.id)
-        .gte("created_at", from.toISOString())
-        .lte("created_at", to.toISOString()),
-    ]);
-    setCashiers((cs ?? []).map((c: any) => ({
-      ...c,
-      authUserId: c.auth_user_id || null,
-    })) as Cashier[]);
-    const agg: Record<string, Stat> = {};
-    let owner: Stat = { count: 0, revenue: 0 };
-    (sales ?? []).forEach((s: any) => {
-      if (s.status === "refunded") return;
-      const rev = Number(s.total) || 0;
-      if (!s.cashier_id) {
-        owner.count += 1;
-        owner.revenue += rev;
-        return;
-      }
-      const cur = agg[s.cashier_id] || { count: 0, revenue: 0 };
-      cur.count += 1;
-      cur.revenue += rev;
-      agg[s.cashier_id] = cur;
-    });
-    setStats(agg);
-    setOwnerStat(owner);
-    setLoading(false);
+    try {
+      const { from, to } = lusakaDayRange();
+      const [{ data: cs }, { data: sales }] = await Promise.all([
+        supabase
+          .from("business_cashiers")
+          .select("id, auth_user_id, username, display_name, is_active, last_login_at")
+          .eq("business_id", business.id)
+          .order("created_at"),
+        supabase
+          .from("sales")
+          .select("cashier_id, total, status")
+          .eq("business_id", business.id)
+          .gte("created_at", from.toISOString())
+          .lte("created_at", to.toISOString())
+          .limit(2000),
+      ]);
+      setCashiers((cs ?? []).map((c: any) => ({
+        ...c,
+        authUserId: c.auth_user_id || null,
+      })) as Cashier[]);
+      const agg: Record<string, Stat> = {};
+      let owner: Stat = { count: 0, revenue: 0 };
+      (sales ?? []).forEach((s: any) => {
+        if (s.status === "refunded") return;
+        const rev = Number(s.total) || 0;
+        if (!s.cashier_id) {
+          owner.count += 1;
+          owner.revenue += rev;
+          return;
+        }
+        const cur = agg[s.cashier_id] || { count: 0, revenue: 0 };
+        cur.count += 1;
+        cur.revenue += rev;
+        agg[s.cashier_id] = cur;
+      });
+      setStats(agg);
+      setOwnerStat(owner);
+    } catch (e) {
+      console.error("Failed to load cashier activity:", e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
