@@ -21,7 +21,7 @@ import { supabase } from '@/integrations/supabase/client';
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user, signOut, isLoading: authLoading } = useAuthContext();
-  const { business, isLoading: businessLoading, refetch, checkSubscriptionStatus } = useBusiness(user?.id);
+  const { business, isLoading: businessLoading, error: businessError, refetch, checkSubscriptionStatus } = useBusiness(user?.id);
   const { labels, isService } = useBusinessType(business?.id);
   const { toast } = useToast();
   const [hasSalesToday, setHasSalesToday] = useState(false);
@@ -59,6 +59,30 @@ const Dashboard = () => {
         <div className="text-center">
           <Store className="w-12 h-12 text-primary mx-auto mb-4 animate-pulse" />
           <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const handleRetry = () => refetch();
+
+  if (!business && businessError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="text-center max-w-md">
+          <Store className="w-12 h-12 text-primary mx-auto mb-4" />
+          <h2 className="font-display font-bold text-xl mb-2">Unable to load dashboard</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            {businessError}. Please make sure the database migrations have been applied.
+          </p>
+          <div className="flex gap-2 justify-center">
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              Reload
+            </Button>
+            <Button variant="pos" onClick={handleRetry}>
+              Retry
+            </Button>
+          </div>
         </div>
       </div>
     );

@@ -1,7 +1,27 @@
 // Offline storage utilities using IndexedDB and localStorage
 
 const DB_NAME = 'zampos_db';
-const DB_VERSION = 4; // Bumped for resilient cache refresh
+const DB_VERSION = 6; // Increment when schema changes; must always be > any previously deployed version
+
+// Detect browser's existing DB version to handle downgrade
+const getExistingVersion = (): Promise<number> => {
+  return new Promise((resolve) => {
+    const req = indexedDB.open(DB_NAME);
+    req.onsuccess = () => {
+      const version = req.result.version;
+      req.result.close();
+      resolve(version);
+    };
+    req.onerror = () => resolve(0);
+    req.onupgradeneeded = () => {
+      // No upgrade needed just to read the version
+      const db = req.result;
+      const version = db.version;
+      db.close();
+      resolve(version);
+    };
+  });
+};
 
 interface OfflineSale {
   id: string;
@@ -91,7 +111,23 @@ export const initDB = (): Promise<IDBDatabase> => {
       return;
     }
 
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    tryCreate(DB_VERSION).then(resolve).catch((err) => {
+      // If version conflict, delete old DB and retry from scratch
+      const msg = String(err?.message || err || '');
+      if (/less than the existing|version.*lower/i.test(msg)) {
+        const deleteReq = indexedDB.deleteDatabase(DB_NAME);
+        deleteReq.onsuccess = () => tryCreate(DB_VERSION).then(resolve).catch(reject);
+        deleteReq.onerror = () => reject(deleteReq.error);
+      } else {
+        reject(err);
+      }
+    });
+  });
+};
+
+const tryCreate = (version: number): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, version);
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
@@ -102,7 +138,6 @@ export const initDB = (): Promise<IDBDatabase> => {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
 
-      // Create stores
       if (!db.objectStoreNames.contains('sales')) {
         const salesStore = db.createObjectStore('sales', { keyPath: 'id' });
         salesStore.createIndex('synced', 'synced', { unique: false });

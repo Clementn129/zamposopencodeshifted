@@ -24,34 +24,37 @@ if (isInIframe && "serviceWorker" in navigator) {
 // ---------------------------------------------------------------------------
 // White-screen recovery for stale service worker deploys.
 //
-// After a new deploy (Vercel/Lovable), an old service worker can still serve
-// a cached index.html that references hashed JS chunks which no longer exist.
-// The dynamic import then fails ("Failed to fetch dynamically imported
-// module" / "ChunkLoadError") and React never mounts → white screen on
-// Chrome / Edge, especially after login when a lazy route loads.
+// After a new deploy, an old service worker can still serve a cached
+// index.html that references hashed JS chunks which no longer exist.
+// The dynamic import then fails and React never mounts → white screen.
 //
 // When we detect this specific error class we unregister every service
-// worker, purge caches, and force a one-time hard reload. Guarded by a
-// sessionStorage flag so we never loop.
+// worker, purge caches, and force a one-time hard reload.
 // ---------------------------------------------------------------------------
 const RELOAD_FLAG = "zampos:sw-recovery-reload";
+const RELOAD_TIME_FLAG = "zampos:sw-recovery-time";
 
 const looksLikeChunkLoadError = (msg: string | undefined | null): boolean => {
   if (!msg) return false;
+  // Only match exact chunk/module load failures, not generic errors.
   return (
-    /ChunkLoadError/i.test(msg) ||
-    /Loading chunk [\d]+ failed/i.test(msg) ||
-    /Failed to fetch dynamically imported module/i.test(msg) ||
-    /error loading dynamically imported module/i.test(msg) ||
-    /Importing a module script failed/i.test(msg)
+    /^ChunkLoadError: /i.test(msg) ||
+    /^Loading chunk [\d]+ failed/i.test(msg) ||
+    /^Failed to fetch dynamically imported module/i.test(msg) ||
+    /^error loading dynamically imported module/i.test(msg) ||
+    /^Importing a module script failed/i.test(msg)
   );
 };
 
 const recoverFromStaleServiceWorker = async () => {
-  try {
-    if (sessionStorage.getItem(RELOAD_FLAG)) return; // already tried this session
-    sessionStorage.setItem(RELOAD_FLAG, "1");
+  if (sessionStorage.getItem(RELOAD_FLAG)) return;
+  // Prevent rapid retries: at least 30s since last attempt.
+  const lastTry = sessionStorage.getItem(RELOAD_TIME_FLAG);
+  if (lastTry && Date.now() - Number(lastTry) < 30000) return;
+  sessionStorage.setItem(RELOAD_FLAG, "1");
+  sessionStorage.setItem(RELOAD_TIME_FLAG, String(Date.now()));
 
+  try {
     if ("serviceWorker" in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
@@ -67,10 +70,15 @@ const recoverFromStaleServiceWorker = async () => {
   }
 };
 
+let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+
 if (typeof window !== "undefined") {
   window.addEventListener("error", (event) => {
     if (looksLikeChunkLoadError(event?.message)) {
-      void recoverFromStaleServiceWorker();
+      if (reloadTimer) return;
+      reloadTimer = setTimeout(() => {
+        void recoverFromStaleServiceWorker();
+      }, 100);
     }
   });
   window.addEventListener("unhandledrejection", (event) => {
@@ -82,7 +90,10 @@ if (typeof window !== "undefined") {
           ? reason.message
           : "";
     if (looksLikeChunkLoadError(msg)) {
-      void recoverFromStaleServiceWorker();
+      if (reloadTimer) return;
+      reloadTimer = setTimeout(() => {
+        void recoverFromStaleServiceWorker();
+      }, 100);
     }
   });
 }

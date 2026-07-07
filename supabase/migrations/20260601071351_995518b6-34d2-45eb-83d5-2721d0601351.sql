@@ -8,28 +8,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS sales_business_offline_id_uniq
   ON public.sales (business_id, offline_id)
   WHERE offline_id IS NOT NULL;
 
--- Enable realtime for sales and products (idempotent)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='sales'
-  ) THEN
-    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.sales';
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='products'
-  ) THEN
-    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.products';
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='quotations'
-  ) THEN
-    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.quotations';
-  END IF;
-END $$;
+-- Enable realtime for sales, products, and quotations (idempotent)
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.sales; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.products; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE public.quotations; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Ensure full row data flows in realtime payloads
 ALTER TABLE public.sales REPLICA IDENTITY FULL;

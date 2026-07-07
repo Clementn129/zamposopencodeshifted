@@ -79,7 +79,6 @@ const Auth = () => {
           title: 'Welcome back!',
           description: 'You have successfully logged in.',
         });
-        navigate('/dashboard');
       }
     } catch (err) {
       toast({
@@ -212,7 +211,7 @@ const Auth = () => {
     }
 
     try {
-      const { error } = await signUp(
+      const { data, error } = await signUp(
         registerEmail, 
         registerPassword, 
         registerFullName.trim(), 
@@ -232,13 +231,18 @@ const Auth = () => {
           title: 'Registration Failed',
           description: message,
         });
+      } else if (!data?.session) {
+        toast({
+          title: 'Check your email',
+          description: 'We sent you a confirmation link. Please check your inbox to activate your account.',
+        });
+        setLoginEmail(registerEmail);
+        setLoginPassword(registerPassword);
       } else {
         toast({
           title: 'Welcome to ZamPOS!',
           description: 'Your account and business have been created. You have a 3-day free trial.',
         });
-
-        navigate('/dashboard');
       }
     } catch (err) {
       toast({
