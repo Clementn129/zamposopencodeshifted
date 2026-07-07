@@ -18,6 +18,13 @@ dist-ssr
 .env.production
 .env.development
 
+# Build output
+dist/
+dist-ssr/
+
+# Generated files
+supabase/migrations_all.sql
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
