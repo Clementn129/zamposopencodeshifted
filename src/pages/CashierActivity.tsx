@@ -16,6 +16,7 @@ import { lusakaDayRange } from "@/lib/dateRange";
 
 type Cashier = {
   id: string;
+  authUserId: string | null;
   username: string;
   display_name: string | null;
   is_active: boolean;
@@ -44,7 +45,7 @@ const CashierActivity = () => {
     const [{ data: cs }, { data: sales }] = await Promise.all([
       supabase
         .from("business_cashiers")
-        .select("id, username, display_name, is_active, last_login_at")
+        .select("id, auth_user_id, username, display_name, is_active, last_login_at")
         .eq("business_id", business.id)
         .order("created_at"),
       supabase
@@ -54,7 +55,10 @@ const CashierActivity = () => {
         .gte("created_at", from.toISOString())
         .lte("created_at", to.toISOString()),
     ]);
-    setCashiers((cs ?? []) as Cashier[]);
+    setCashiers((cs ?? []).map((c: any) => ({
+      ...c,
+      authUserId: c.auth_user_id || null,
+    })) as Cashier[]);
     const agg: Record<string, Stat> = {};
     let owner: Stat = { count: 0, revenue: 0 };
     (sales ?? []).forEach((s: any) => {
@@ -138,7 +142,7 @@ const CashierActivity = () => {
           )}
 
           {cashiers.map((c) => {
-            const s = stats[c.id] || { count: 0, revenue: 0 };
+            const s = (c.authUserId ? stats[c.authUserId] : null) || { count: 0, revenue: 0 };
             return (
               <Card key={c.id}>
                 <CardHeader className="pb-2">

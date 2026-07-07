@@ -49,6 +49,23 @@ Deno.serve(async (req) => {
   await admin.from("user_roles").delete().eq("user_id", userId);
   await admin.from("user_roles").insert({ user_id: userId, role: "super_admin" });
 
+  // Create a business so the admin can also use the regular dashboard
+  const { data: existingBiz } = await admin
+    .from("businesses")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!existingBiz) {
+    const { data: paymentCode } = await admin.rpc("generate_payment_code");
+    await admin.from("businesses").insert({
+      user_id: userId,
+      name: "My Shop",
+      payment_code: paymentCode || "POS-ADMIN",
+      subscription_status: "active",
+      tax_mode: "inclusive",
+    });
+  }
+
   return new Response(JSON.stringify({ ok: true, user_id: userId, email }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });

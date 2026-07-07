@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { ArrowLeft, Plus, Users, DollarSign, Check, Clock, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, Users, DollarSign, Check, Clock, Trash2, Search, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,12 +16,14 @@ import LockScreen from '@/components/LockScreen';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useBusiness } from '@/hooks/useBusiness';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useProducts } from '@/hooks/useProducts';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { cacheDebtors, getCachedDebtors, updateCachedDebtor } from '@/lib/offlineStorage';
+import { cacheDebtors, getCachedDebtors, updateCachedDebtor, generateOfflineId, updateCachedProductStock } from '@/lib/offlineStorage';
 
 type Debtor = {
   id: string;
+  saleId: string | null;
   customerName: string;
   customerPhone: string | null;
   amountOwed: number;
@@ -29,6 +31,15 @@ type Debtor = {
   status: 'unpaid' | 'partially_paid' | 'paid';
   notes: string | null;
   createdAt: string;
+  linkedItems?: Array<{ productId: string; name: string; price: number; quantity: number }>;
+};
+
+type CreditCartLine = {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  stock: number;
 };
 
 type DebtorPayment = {
@@ -58,8 +69,11 @@ const Debtors = () => {
   // Add debtor form
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [amountOwed, setAmountOwed] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
+  const { activeProducts, isLoading: productsLoading } = useProducts(business?.id);
+  const [productSearch, setProductSearch] = useState('');
+  const [creditCart, setCreditCart] = useState<CreditCartLine[]>([]);
 
   // Payment form
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -82,8 +96,31 @@ const Debtors = () => {
 
         if (error) throw error;
 
+        // Batch fetch linked sale items
+        const saleIds = (data || []).map(d => d.sale_id).filter(Boolean);
+        const saleItemsMap: Record<string, Array<{ productId: string; name: string; price: number; quantity: number }>> = {};
+        if (saleIds.length > 0) {
+          const { data: salesData } = await supabase
+            .from('sales')
+            .select('id, items')
+            .in('id', saleIds);
+          if (salesData) {
+            for (const s of salesData) {
+              if (s.items && Array.isArray(s.items)) {
+                saleItemsMap[s.id] = s.items.map((i: any) => ({
+                  productId: i.productId || i.product_id,
+                  name: i.name,
+                  price: Number(i.price || 0),
+                  quantity: Number(i.quantity || 0),
+                }));
+              }
+            }
+          }
+        }
+
         const mappedDebtors = (data || []).map((d: any) => ({
           id: d.id,
+          saleId: d.sale_id || null,
           customerName: d.customer_name,
           customerPhone: d.customer_phone,
           amountOwed: Number(d.amount_owed),
@@ -91,6 +128,7 @@ const Debtors = () => {
           status: d.status as 'unpaid' | 'partially_paid' | 'paid',
           notes: d.notes,
           createdAt: d.created_at,
+          linkedItems: d.sale_id ? (saleItemsMap[d.sale_id] || []) : undefined,
         }));
         setDebtors(mappedDebtors);
 
@@ -111,6 +149,7 @@ const Debtors = () => {
         const cached = await getCachedDebtors(business.id);
         setDebtors(cached.map(d => ({
           id: d.id,
+          saleId: null,
           customerName: d.customerName,
           customerPhone: d.customerPhone,
           amountOwed: d.amountOwed,
@@ -127,6 +166,7 @@ const Debtors = () => {
         const cached = await getCachedDebtors(business.id);
         setDebtors(cached.map(d => ({
           id: d.id,
+          saleId: null,
           customerName: d.customerName,
           customerPhone: d.customerPhone,
           amountOwed: d.amountOwed,
@@ -173,34 +213,138 @@ const Debtors = () => {
   const resetAddForm = () => {
     setCustomerName('');
     setCustomerPhone('');
-    setAmountOwed('');
+    setDueDate('');
     setNotes('');
+    setProductSearch('');
+    setCreditCart([]);
   };
 
+  const addToCreditCart = (productId: string) => {
+    const p = activeProducts.find(x => x.id === productId);
+    if (!p) return;
+    setCreditCart(prev => {
+      const existing = prev.find(l => l.productId === productId);
+      if (existing) {
+        const nextQty = existing.quantity + 1;
+        if (p.itemType !== 'service' && nextQty > (p.stock ?? 0)) {
+          return prev;
+        }
+        return prev.map(l => l.productId === productId ? { ...l, quantity: nextQty } : l);
+      }
+      if (p.itemType !== 'service' && p.stock <= 0) return prev;
+      return [...prev, { productId, name: p.variantLabel ? `${p.name} · ${p.variantLabel}` : p.name, price: p.price ?? 0, quantity: 1, stock: p.stock ?? 0 }];
+    });
+  };
+
+  const updateCartQty = (productId: string, delta: number) => {
+    setCreditCart(prev => {
+      const line = prev.find(l => l.productId === productId);
+      if (!line) return prev;
+      const nextQty = line.quantity + delta;
+      if (nextQty <= 0) return prev.filter(l => l.productId !== productId);
+      return prev.map(l => l.productId === productId ? { ...l, quantity: nextQty } : l);
+    });
+  };
+
+  const removeFromCart = (productId: string) => {
+    setCreditCart(prev => prev.filter(l => l.productId !== productId));
+  };
+
+  const creditCartTotal = useMemo(() =>
+    creditCart.reduce((s, l) => s + l.price * l.quantity, 0),
+  [creditCart]);
+
+  const filteredProductsForAdd = useMemo(() => {
+    if (!productSearch.trim()) return activeProducts;
+    const q = productSearch.toLowerCase();
+    return activeProducts.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      (p.category && p.category.toLowerCase().includes(q))
+    );
+  }, [activeProducts, productSearch]);
+
   const handleAddDebtor = async () => {
-    if (!customerName.trim() || !amountOwed) {
-      toast({ variant: 'destructive', title: 'Missing fields', description: 'Customer name and amount are required.' });
+    if (!customerName.trim()) {
+      toast({ variant: 'destructive', title: 'Missing fields', description: 'Customer name is required.' });
+      return;
+    }
+    if (creditCart.length === 0) {
+      toast({ variant: 'destructive', title: 'No products', description: 'Select at least one product.' });
       return;
     }
 
     setSaving(true);
     try {
-      const { error } = await supabase.from('debtors').insert({
+      if (!isOnline) {
+        toast({ variant: 'destructive', title: 'Offline', description: 'Connect to internet to create credit sales.' });
+        setSaving(false);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const offlineId = generateOfflineId();
+      const items = creditCart.map(l => ({
+        productId: l.productId,
+        name: l.name,
+        price: l.price,
+        quantity: l.quantity,
+        costPrice: null,
+        discountType: null,
+        discountValue: 0,
+        notes: null,
+        taxCategory: 'taxable' as const,
+      }));
+      const total = creditCartTotal;
+
+      const { data: returnedSaleId, error: saleErr } = await (supabase.rpc as any)('sync_offline_sale', {
+        p_business_id: business!.id,
+        p_offline_id: offlineId,
+        p_items: items,
+        p_subtotal: total,
+        p_total: total,
+        p_discount_amount: 0,
+        p_discount_type: null,
+        p_payment_method: 'credit',
+        p_created_at: now,
+        p_tax_amount: 0,
+        p_taxable_amount: 0,
+        p_zero_rated_amount: 0,
+        p_exempt_amount: 0,
+        p_customer_name: customerName.trim(),
+        p_customer_tpin: null,
+        p_amount_paid: 0,
+        p_due_date: dueDate || null,
+        p_customer_phone: customerPhone.trim() || null,
+      });
+
+      if (saleErr) throw saleErr;
+
+      for (const line of creditCart) {
+        const p = activeProducts.find(x => x.id === line.productId);
+        if (p) {
+          await updateCachedProductStock(line.productId, Math.max(0, Number(p.stock ?? 0) - line.quantity));
+        }
+      }
+
+      const { error: debtorErr } = await supabase.from('debtors').insert({
         business_id: business!.id,
+        sale_id: returnedSaleId,
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim() || null,
-        amount_owed: Number(amountOwed),
+        amount_owed: total,
+        amount_paid: 0,
+        status: 'unpaid',
         notes: notes.trim() || null,
       });
 
-      if (error) throw error;
+      if (debtorErr) throw debtorErr;
 
-      toast({ title: 'Debtor Added' });
+      toast({ title: 'Credit Sale Recorded', description: `ZMW ${total.toFixed(2)} — stock deducted.` });
       setAddOpen(false);
       resetAddForm();
       await fetchDebtors();
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Failed', description: e?.message ?? 'Could not add debtor' });
+      toast({ variant: 'destructive', title: 'Failed', description: e?.message ?? 'Could not create credit sale' });
     } finally {
       setSaving(false);
     }
@@ -401,29 +545,105 @@ const Debtors = () => {
                   <Plus className="h-4 w-4 mr-2" /> Add
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle>Add Debtor</DialogTitle>
+                  <DialogTitle>New Credit Sale</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
                   <div className="space-y-2">
                     <Label>Customer Name</Label>
                     <Input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="John Doe" />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Phone (optional)</Label>
-                    <Input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="+260..." />
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-2">
+                      <Label>Phone (optional)</Label>
+                      <Input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="+260..." />
+                    </div>
+                    <div className="w-36 space-y-2">
+                      <Label>Due Date</Label>
+                      <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Amount Owed (ZMW)</Label>
-                    <Input type="number" value={amountOwed} onChange={e => setAmountOwed(e.target.value)} placeholder="0.00" />
+
+                  {/* Product selection */}
+                  <div className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Package className="h-4 w-4" /> Products on Credit
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        className="pl-8"
+                        placeholder="Search products..."
+                        value={productSearch}
+                        onChange={e => setProductSearch(e.target.value)}
+                      />
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {productsLoading ? (
+                        <p className="text-xs text-muted-foreground py-2 text-center">Loading products...</p>
+                      ) : filteredProductsForAdd.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2 text-center">No products found</p>
+                      ) : (
+                        filteredProductsForAdd.map(p => {
+                          const inCart = creditCart.find(l => l.productId === p.id);
+                          return (
+                            <div key={p.id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-secondary cursor-pointer" onClick={() => addToCreditCart(p.id)}>
+                              <div className="text-sm">
+                                <span>{p.variantLabel ? `${p.name} · ${p.variantLabel}` : p.name}</span>
+                                <span className="text-muted-foreground ml-2">ZMW {Number(p.price).toFixed(2)}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {p.itemType !== 'service' && (
+                                  <span className={`text-xs ${Number(p.stock) <= 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                    {Number(p.stock)} left
+                                  </span>
+                                )}
+                                {inCart && <Badge className="bg-green-500 text-xs">{inCart.quantity}</Badge>}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
+
+                  {/* Credit cart */}
+                  {creditCart.length > 0 && (
+                    <div className="border rounded-lg p-3 space-y-2">
+                      <div className="text-sm font-medium">Selected Items</div>
+                      {creditCart.map(line => (
+                        <div key={line.productId} className="flex items-center justify-between bg-secondary rounded p-2 text-sm">
+                          <div className="flex-1 min-w-0">
+                            <p className="truncate">{line.name}</p>
+                            <p className="text-muted-foreground">ZMW {line.price.toFixed(2)} × {line.quantity}</p>
+                          </div>
+                          <div className="flex items-center gap-1 ml-2">
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateCartQty(line.productId, -1)}>
+                              -
+                            </Button>
+                            <span className="w-6 text-center font-medium">{line.quantity}</span>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateCartQty(line.productId, 1)}>
+                              +
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => removeFromCart(line.productId)}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="text-right font-bold pt-1">
+                        Total: ZMW {creditCartTotal.toFixed(2)}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <Label>Notes (optional)</Label>
                     <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Details about the credit..." />
                   </div>
-                  <Button variant="pos" className="w-full" onClick={handleAddDebtor} disabled={saving}>
-                    {saving ? 'Saving...' : 'Add Debtor'}
+                  <Button variant="pos" className="w-full" onClick={handleAddDebtor} disabled={saving || creditCart.length === 0}>
+                    {saving ? 'Processing...' : `Record Credit Sale`}
                   </Button>
                 </div>
               </DialogContent>
@@ -492,6 +712,19 @@ const Debtors = () => {
                         </div>
                         {getStatusBadge(debtor.status)}
                       </div>
+
+                      {/* Linked products */}
+                      {debtor.linkedItems && debtor.linkedItems.length > 0 && (
+                        <div className="mb-2 space-y-0.5">
+                          {debtor.linkedItems.map((item, idx) => (
+                            <div key={idx} className="text-xs text-muted-foreground flex justify-between">
+                              <span>{item.quantity}× {item.name}</span>
+                              <span>ZMW {(item.price * item.quantity).toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between">
                         <div className="text-sm">
                           <span className="text-muted-foreground">Owed: </span>

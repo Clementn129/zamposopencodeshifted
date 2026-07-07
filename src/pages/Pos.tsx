@@ -76,6 +76,8 @@ const Pos = () => {
   // Amount received / change calculation
   const [amountReceived, setAmountReceived] = useState("");
 
+  const [visibleCount, setVisibleCount] = useState(50);
+
   // Payment mode: full = paid in full; partial = part paid now, rest owed; credit = nothing paid, all owed.
   const [paymentMode, setPaymentMode] = useState<"full" | "partial" | "credit">("full");
   const [partialAmount, setPartialAmount] = useState("");
@@ -116,6 +118,10 @@ const Pos = () => {
   useEffect(() => {
     getCart().then((items) => setCart(items.map((i) => ({ ...i }))));
   }, []);
+
+  useEffect(() => {
+    setVisibleCount(50);
+  }, [searchQuery]);
 
   const subtotal = useMemo(() => cart.reduce((s, l) => {
     const lineTotal = l.price * l.quantity;
@@ -350,8 +356,7 @@ const Pos = () => {
           await updateCachedProductStock(line.productId, Math.max(0, Number(p?.stock ?? 0) - line.quantity));
         }
 
-        // Legacy debtors table — kept for the existing Debtors page until the
-        // unified sales-based view fully replaces it.
+        // Create debtor record linked to the credit sale
         if (isCredit && returnedSaleId) {
           const { error: debtorErr } = await supabase.from("debtors").insert({
             business_id: business.id,
@@ -362,6 +367,7 @@ const Pos = () => {
             amount_paid: amountPaidNow,
             status: amountPaidNow > 0 ? "partially_paid" : "unpaid",
             notes: creditNotes.trim() || null,
+            due_date: dueDate || null,
           });
           if (debtorErr) console.error("Failed to create debtor:", debtorErr);
         }
@@ -527,14 +533,14 @@ const Pos = () => {
                           <div className="bg-muted/50 rounded px-2 py-1 text-xs font-medium text-muted-foreground sticky top-0">
                             {cat} ({prods.length})
                           </div>
-                          {prods.map((p) => {
+                          {prods.slice(0, visibleCount).map((p) => {
                             const displayName = p.variantLabel ? `${p.name} · ${p.variantLabel}` : p.name;
                             return (
-                              <button key={p.id} onClick={() => addToCart(p.id)} className="w-full text-left bg-secondary rounded-lg p-3 hover:opacity-90 transition">
+                              <button key={p.id} onClick={() => addToCart(p.id)} className="w-full text-left bg-secondary rounded-lg p-3 hover:opacity-90 transition" style={{ contentVisibility: 'auto' }}>
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="flex items-center gap-3 min-w-0">
                                     {p.imageUrl ? (
-                                      <img src={p.imageUrl} alt={displayName} className="h-10 w-10 rounded object-cover shrink-0" />
+                                      <img src={p.imageUrl} alt={displayName} className="h-10 w-10 rounded object-cover shrink-0" loading="lazy" />
                                     ) : (
                                       <div className="h-10 w-10 rounded bg-muted shrink-0" />
                                     )}
@@ -550,6 +556,11 @@ const Pos = () => {
                               </button>
                             );
                           })}
+                          {prods.length > visibleCount && (
+                            <button onClick={() => setVisibleCount(v => v + 50)} className="w-full text-center text-sm text-primary py-2 hover:underline">
+                              Show {Math.min(50, prods.length - visibleCount)} more ({prods.length - visibleCount} remaining)
+                            </button>
+                          )}
                         </div>
                       ))
                     )}
