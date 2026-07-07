@@ -190,7 +190,8 @@ const Debtors = () => {
         .from('debtor_payments')
         .select('*')
         .eq('debtor_id', debtorId)
-        .order('payment_date', { ascending: false });
+        .order('payment_date', { ascending: false })
+        .limit(100);
 
       if (error) throw error;
 

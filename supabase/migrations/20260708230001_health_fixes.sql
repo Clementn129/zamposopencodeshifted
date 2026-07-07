@@ -6,7 +6,7 @@
 GRANT EXECUTE ON FUNCTION public.is_business_member(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.owns_business(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_cashier_of_business(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.has_role(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.has_role(uuid, app_role) TO authenticated;
 
 -- 2. GRANT EXECUTE on user-facing RPCs
 GRANT EXECUTE ON FUNCTION public.lookup_business_by_code(text) TO authenticated;
@@ -16,19 +16,30 @@ GRANT EXECUTE ON FUNCTION public.get_my_role() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.approve_stock_adjustment(uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.reject_stock_adjustment(uuid, text) TO authenticated;
 
--- 3. Add foreign key constraints to business_cashiers
-ALTER TABLE public.business_cashiers
-  ADD CONSTRAINT IF NOT EXISTS business_cashiers_business_id_fkey
-  FOREIGN KEY (business_id) REFERENCES public.businesses(id) ON DELETE CASCADE;
+-- 2b. GRANT EXECUTE on RPCs called directly from frontend (SECURITY DEFINER)
+GRANT EXECUTE ON FUNCTION public.record_sale_payment(uuid, numeric, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.sync_offline_sale(uuid, text, jsonb, numeric, numeric, numeric, text, text, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.generate_affiliate_code() TO authenticated;
 
-ALTER TABLE public.business_cashiers
-  ADD CONSTRAINT IF NOT EXISTS business_cashiers_auth_user_id_fkey
-  FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+-- 3. Add foreign key constraints to business_cashiers
+DO $$ BEGIN
+  ALTER TABLE public.business_cashiers
+    ADD CONSTRAINT business_cashiers_business_id_fkey
+    FOREIGN KEY (business_id) REFERENCES public.businesses(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.business_cashiers
+    ADD CONSTRAINT business_cashiers_auth_user_id_fkey
+    FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 4. Add foreign key to notices.created_by
-ALTER TABLE public.notices
-  ADD CONSTRAINT IF NOT EXISTS notices_created_by_fkey
-  FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE public.notices
+    ADD CONSTRAINT notices_created_by_fkey
+    FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 5. Add RLS INSERT policy for business_cashiers (used by edge function with service_role)
 DROP POLICY IF EXISTS "Service role can insert cashiers" ON public.business_cashiers;

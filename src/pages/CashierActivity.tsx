@@ -48,7 +48,8 @@ const CashierActivity = () => {
           .from("business_cashiers")
           .select("id, auth_user_id, username, display_name, is_active, last_login_at")
           .eq("business_id", business.id)
-          .order("created_at"),
+          .order("created_at")
+          .limit(200),
         supabase
           .from("sales")
           .select("cashier_id, total, status")

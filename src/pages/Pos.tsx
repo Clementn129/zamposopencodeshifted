@@ -116,7 +116,7 @@ const Pos = () => {
   }, [authLoading, user, navigate]);
 
   useEffect(() => {
-    getCart().then((items) => setCart(items.map((i) => ({ ...i }))));
+    getCart().then((items) => setCart(items.map((i) => ({ ...i })))).catch(() => {});
   }, []);
 
   useEffect(() => {

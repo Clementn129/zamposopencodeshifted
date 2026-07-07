@@ -117,11 +117,11 @@ const Settings = () => {
     if (!business?.id) return;
     setUploading(true);
     try {
-      // Try removing all common extensions
+      // Try removing all common extensions in parallel
       const exts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
-      for (const ext of exts) {
-        await supabase.storage.from('business-logos').remove([`${business.id}/logo.${ext}`]);
-      }
+      await Promise.allSettled(exts.map((ext) =>
+        supabase.storage.from('business-logos').remove([`${business.id}/logo.${ext}`])
+      ));
       await supabase.from('businesses').update({ logo_url: null, updated_at: new Date().toISOString() }).eq('id', business.id);
       setLogoUrl(null);
       toast({ title: 'Logo removed' });

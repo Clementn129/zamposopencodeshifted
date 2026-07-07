@@ -39,18 +39,18 @@ const AuditLog = () => {
   useEffect(() => {
     if (!business?.id) return;
     let cancelled = false;
-    (async () => {
-      setLoading(true);
-      const { data } = await supabase
-        .from("audit_logs" as any)
-        .select("id, table_name, action, actor_label, record_id, created_at")
-        .eq("business_id", business.id)
-        .order("created_at", { ascending: false })
-        .limit(200);
-      if (cancelled) return;
-      setLogs(((data ?? []) as unknown) as AuditEntry[]);
-      setLoading(false);
-    })();
+    supabase
+      .from("audit_logs" as any)
+      .select("id, table_name, action, actor_label, record_id, created_at")
+      .eq("business_id", business.id)
+      .order("created_at", { ascending: false })
+      .limit(200)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setLogs(((data ?? []) as unknown) as AuditEntry[]);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [business?.id]);
 
