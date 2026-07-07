@@ -1,0 +1,1 @@
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS item_type text NOT NULL DEFAULT 'product' CHECK (item_type IN ('product','service'));

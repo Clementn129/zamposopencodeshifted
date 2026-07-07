@@ -1,0 +1,224 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ZamPOS Design System - Zambian Business Colors */
+
+@layer base {
+  :root {
+    /* Core brand - trustworthy green with warm undertones */
+    --background: 40 20% 98%;
+    --foreground: 160 30% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 160 30% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 160 30% 10%;
+
+    /* Primary: Deep forest green - trust, growth, money */
+    --primary: 158 64% 28%;
+    --primary-foreground: 40 20% 98%;
+
+    /* Secondary: Warm sand/tan - African earth tones */
+    --secondary: 35 30% 92%;
+    --secondary-foreground: 160 30% 15%;
+
+    --muted: 40 15% 94%;
+    --muted-foreground: 160 10% 45%;
+
+    /* Accent: Warm amber/orange - energy, action */
+    --accent: 28 85% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Success green */
+    --success: 142 70% 40%;
+    --success-foreground: 0 0% 100%;
+
+    /* Warning amber */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 40 20% 88%;
+    --input: 40 20% 88%;
+    --ring: 158 64% 28%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar - warm neutral */
+    --sidebar-background: 40 15% 96%;
+    --sidebar-foreground: 160 30% 15%;
+    --sidebar-primary: 158 64% 28%;
+    --sidebar-primary-foreground: 40 20% 98%;
+    --sidebar-accent: 35 30% 90%;
+    --sidebar-accent-foreground: 160 30% 15%;
+    --sidebar-border: 40 20% 88%;
+    --sidebar-ring: 158 64% 28%;
+
+    /* Custom gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(158 64% 28%), hsl(158 50% 38%));
+    --gradient-accent: linear-gradient(135deg, hsl(28 85% 55%), hsl(38 92% 50%));
+    --gradient-warm: linear-gradient(180deg, hsl(40 20% 98%), hsl(35 30% 95%));
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(160 30% 10% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(160 30% 10% / 0.08), 0 2px 4px -2px hsl(160 30% 10% / 0.06);
+    --shadow-lg: 0 10px 15px -3px hsl(160 30% 10% / 0.1), 0 4px 6px -4px hsl(160 30% 10% / 0.1);
+    --shadow-xl: 0 20px 25px -5px hsl(160 30% 10% / 0.1), 0 8px 10px -6px hsl(160 30% 10% / 0.1);
+  }
+
+  .dark {
+    --background: 160 30% 8%;
+    --foreground: 40 20% 95%;
+
+    --card: 160 25% 12%;
+    --card-foreground: 40 20% 95%;
+
+    --popover: 160 25% 12%;
+    --popover-foreground: 40 20% 95%;
+
+    --primary: 158 55% 45%;
+    --primary-foreground: 160 30% 8%;
+
+    --secondary: 160 20% 18%;
+    --secondary-foreground: 40 20% 90%;
+
+    --muted: 160 20% 18%;
+    --muted-foreground: 40 15% 55%;
+
+    --accent: 28 75% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 60% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 85% 55%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 160 20% 22%;
+    --input: 160 20% 22%;
+    --ring: 158 55% 45%;
+
+    --sidebar-background: 160 25% 10%;
+    --sidebar-foreground: 40 20% 90%;
+    --sidebar-primary: 158 55% 45%;
+    --sidebar-primary-foreground: 160 30% 8%;
+    --sidebar-accent: 160 20% 15%;
+    --sidebar-accent-foreground: 40 20% 90%;
+    --sidebar-border: 160 20% 18%;
+    --sidebar-ring: 158 55% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  /* Touch-friendly button styles */
+  .btn-touch {
+    @apply min-h-[48px] min-w-[48px] text-base font-medium;
+  }
+
+  /* POS card styles */
+  .pos-card {
+    @apply rounded-xl bg-card p-4 shadow-md border border-border/50;
+  }
+
+  /* Product grid card */
+  .product-card {
+    @apply rounded-xl bg-card p-4 shadow-sm border border-border/30 hover:shadow-md hover:border-primary/30 transition-all duration-200 cursor-pointer active:scale-[0.98];
+  }
+
+  /* Cart item */
+  .cart-item {
+    @apply flex items-center justify-between py-3 px-4 bg-secondary/50 rounded-lg mb-2;
+  }
+
+  /* Status badges */
+  .badge-trial {
+    @apply bg-warning/20 text-warning border border-warning/30;
+  }
+
+  .badge-active {
+    @apply bg-success/20 text-success border border-success/30;
+  }
+
+  .badge-expired {
+    @apply bg-destructive/20 text-destructive border border-destructive/30;
+  }
+
+  .badge-locked {
+    @apply bg-muted text-muted-foreground border border-border;
+  }
+
+  /* Lock screen overlay */
+  .lock-overlay {
+    @apply fixed inset-0 bg-background/95 backdrop-blur-sm z-50 flex items-center justify-center;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+
+  /* Offline indicator */
+  .offline-indicator {
+    @apply fixed top-0 left-0 right-0 bg-warning text-warning-foreground text-center py-2 text-sm font-medium z-50;
+  }
+
+  /* Online indicator */
+  .online-indicator {
+    @apply fixed top-0 left-0 right-0 bg-success text-success-foreground text-center py-2 text-sm font-medium z-50;
+  }
+}
+
+@layer utilities {
+  /* Safe area padding for mobile */
+  .safe-area-inset {
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* Touch action for smoother scrolling */
+  .touch-pan {
+    touch-action: pan-y;
+  }
+
+  /* Hide scrollbar but allow scrolling */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Prevent accidental horizontal scroll on mobile */
+  html, body {
+    overflow-x: hidden;
+    max-width: 100%;
+  }
+}
+

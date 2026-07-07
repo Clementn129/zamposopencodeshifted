@@ -1,0 +1,7 @@
+project_id = "gglhrfogvwnrgyvlixjq"
+
+[functions.seed-admin]
+verify_jwt = false
+
+[functions.admin-delete-business]
+verify_jwt = false

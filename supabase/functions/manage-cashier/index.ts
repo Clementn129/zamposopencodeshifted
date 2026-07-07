@@ -1,0 +1,253 @@
+// Owner-facing edge function to create/manage cashier accounts for a business.
+// Auth: requires a signed-in owner JWT. Uses service-role to provision the
+// cashier's internal auth user and apply the "cashier" role.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function internalEmail(businessId: string, username: string) {
+  const short = businessId.replace(/-/g, "").slice(0, 12);
+  const u = username.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return `c-${short}-${u}@zampos.local`;
+}
+
+function pinPassword(pin: string) {
+  return `zampos-${pin}`;
+}
+
+function validatePin(pin: unknown): string | null {
+  if (typeof pin !== "string") return null;
+  if (!/^\d{4,6}$/.test(pin)) return null;
+  return pin;
+}
+
+function validateUsername(u: unknown): string | null {
+  if (typeof u !== "string") return null;
+  const v = u.trim().toLowerCase();
+  if (!/^[a-z0-9_]{2,20}$/.test(v)) return null;
+  return v;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+  const action = String(body.action ?? "");
+
+  // Public action: cashier login (no auth required)
+  if (action === "cashier_login") {
+    const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
+    const username = validateUsername(body.username);
+    const pin = validatePin(body.pin);
+    if (!code || !username || !pin) return json({ error: "Missing code, username or PIN" }, 400);
+
+    const { data: bizRow } = await admin
+      .from("businesses")
+      .select("id")
+      .eq("payment_code", code)
+      .maybeSingle();
+    if (!bizRow) return json({ error: "Invalid business code" }, 404);
+
+    const { data: cashier } = await admin
+      .from("business_cashiers")
+      .select("id, is_active")
+      .eq("business_id", bizRow.id)
+      .eq("username", username)
+      .maybeSingle();
+    if (!cashier || !cashier.is_active) return json({ error: "Cashier not found or disabled" }, 404);
+
+    // Stamp last_login_at so the owner's Cashier Activity view stays accurate.
+    await admin
+      .from("business_cashiers")
+      .update({ last_login_at: new Date().toISOString() })
+      .eq("id", cashier.id);
+
+    const email = internalEmail(bizRow.id, username);
+    return json({ ok: true, email, password: pinPassword(pin) });
+
+  }
+
+  // Owner-only actions below
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return json({ error: "Missing authorization" }, 401);
+
+  const caller = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: userData, error: userErr } = await caller.auth.getUser();
+  if (userErr || !userData.user) return json({ error: "Not authenticated" }, 401);
+  const owner = userData.user;
+
+  const { data: biz, error: bizErr } = await admin
+    .from("businesses")
+    .select("id")
+    .eq("user_id", owner.id)
+    .maybeSingle();
+  if (bizErr || !biz) return json({ error: "No business found for this owner" }, 403);
+
+  try {
+    if (action === "create") {
+      const username = validateUsername(body.username);
+      const pin = validatePin(body.pin);
+      const displayName = typeof body.display_name === "string" ? body.display_name.trim() : null;
+      if (!username) return json({ error: "Username must be 2-20 letters/numbers/underscore" }, 400);
+      if (!pin) return json({ error: "PIN must be 4-6 digits" }, 400);
+
+      // Check existing username
+      const { data: existing } = await admin
+        .from("business_cashiers")
+        .select("id")
+        .eq("business_id", biz.id)
+        .eq("username", username)
+        .maybeSingle();
+      if (existing) return json({ error: "That username is already in use" }, 409);
+
+      // Cashier count is unlimited; subscription price scales with active cashiers.
+
+
+      const email = internalEmail(biz.id, username);
+      const password = pinPassword(pin);
+
+      const { data: created, error: createErr } = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { cashier: true, business_id: biz.id, username, display_name: displayName },
+      });
+      if (createErr || !created.user) {
+        return json({ error: createErr?.message || "Failed to create cashier auth user" }, 500);
+      }
+
+      // Cleanup helper if subsequent inserts fail
+      const cleanup = async () => {
+        try { await admin.auth.admin.deleteUser(created.user!.id); } catch { /* ignore */ }
+      };
+
+      // Insert business_cashiers row (cap trigger enforces hard limit too)
+      const { data: row, error: insErr } = await admin
+        .from("business_cashiers")
+        .insert({
+          business_id: biz.id,
+          auth_user_id: created.user.id,
+          username,
+          display_name: displayName,
+          is_active: true,
+        })
+        .select()
+        .single();
+      if (insErr) {
+        await cleanup();
+        return json({ error: insErr.message }, 500);
+      }
+
+      // Assign cashier role (handle_new_user trigger created a business_owner role
+      // by default — remove it and assign cashier instead).
+      await admin.from("user_roles").delete().eq("user_id", created.user.id);
+      const { error: roleErr } = await admin
+        .from("user_roles")
+        .insert({ user_id: created.user.id, role: "cashier" });
+      if (roleErr) {
+        await admin.from("business_cashiers").delete().eq("id", row.id);
+        await cleanup();
+        return json({ error: roleErr.message }, 500);
+      }
+
+      // The handle_new_user trigger also auto-created a 'businesses' row for this
+      // internal user — delete it so the cashier doesn't have a phantom business.
+      await admin.from("businesses").delete().eq("user_id", created.user.id);
+
+      return json({ ok: true, cashier: row });
+    }
+
+    if (action === "reset_pin") {
+      const cashierId = String(body.cashier_id ?? "");
+      const pin = validatePin(body.pin);
+      if (!cashierId) return json({ error: "Missing cashier_id" }, 400);
+      if (!pin) return json({ error: "PIN must be 4-6 digits" }, 400);
+
+      const { data: cashier, error: cErr } = await admin
+        .from("business_cashiers")
+        .select("id, auth_user_id, business_id")
+        .eq("id", cashierId)
+        .maybeSingle();
+      if (cErr || !cashier || cashier.business_id !== biz.id) {
+        return json({ error: "Cashier not found" }, 404);
+      }
+
+      const { error: updErr } = await admin.auth.admin.updateUserById(cashier.auth_user_id, {
+        password: pinPassword(pin),
+      });
+      if (updErr) return json({ error: updErr.message }, 500);
+
+      return json({ ok: true });
+    }
+
+    if (action === "set_active") {
+      const cashierId = String(body.cashier_id ?? "");
+      const isActive = Boolean(body.is_active);
+      if (!cashierId) return json({ error: "Missing cashier_id" }, 400);
+
+      const { data: cashier } = await admin
+        .from("business_cashiers")
+        .select("id, business_id")
+        .eq("id", cashierId)
+        .maybeSingle();
+      if (!cashier || cashier.business_id !== biz.id) return json({ error: "Cashier not found" }, 404);
+
+      const { error: uErr } = await admin
+        .from("business_cashiers")
+        .update({ is_active: isActive })
+        .eq("id", cashierId);
+      if (uErr) {
+        return json({ error: uErr.message }, 409);
+      }
+      return json({ ok: true });
+    }
+
+
+    if (action === "delete") {
+      const cashierId = String(body.cashier_id ?? "");
+      if (!cashierId) return json({ error: "Missing cashier_id" }, 400);
+
+      const { data: cashier } = await admin
+        .from("business_cashiers")
+        .select("id, auth_user_id, business_id")
+        .eq("id", cashierId)
+        .maybeSingle();
+      if (!cashier || cashier.business_id !== biz.id) return json({ error: "Cashier not found" }, 404);
+
+      await admin.from("business_cashiers").delete().eq("id", cashierId);
+      try { await admin.auth.admin.deleteUser(cashier.auth_user_id); } catch { /* ignore */ }
+      return json({ ok: true });
+    }
+
+    return json({ error: "Unknown action" }, 400);
+  } catch (e) {
+    console.error("manage-cashier error:", e);
+    const msg = e instanceof Error ? e.message : "Internal error";
+    return json({ error: msg }, 500);
+  }
+});
