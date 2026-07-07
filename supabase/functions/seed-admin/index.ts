@@ -8,7 +8,7 @@ const corsHeaders = {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const email = "zampos129@gmail.com";
+  const email = "mwilalclement129@gmail.com";
   const password = "Jokermind12@";
 
   const admin = createClient(

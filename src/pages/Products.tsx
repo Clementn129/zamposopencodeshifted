@@ -837,6 +837,15 @@ const Products = () => {
                                       </span>
                                     </div>
                                     <div className="flex items-center gap-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => openEdit(v)}
+                                        disabled={!isOnline}
+                                        aria-label="Edit variant"
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
                                       {labels.showStock && (
                                         <Button
                                           variant="ghost"

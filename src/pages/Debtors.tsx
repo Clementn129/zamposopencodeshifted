@@ -250,9 +250,27 @@ const Debtors = () => {
 
       if (updateError) throw updateError;
 
+      // If this debtor has a linked sale, also update the sale's payment status
+      const { data: debtorData } = await supabase
+        .from('debtors')
+        .select('sale_id')
+        .eq('id', selectedDebtor.id)
+        .maybeSingle();
+
+      if (debtorData?.sale_id) {
+        await (supabase.rpc as any)('record_sale_payment', {
+          p_sale_id: debtorData.sale_id,
+          p_amount: amount,
+          p_payment_method: 'cash',
+          p_notes: 'Payment via debtors',
+        }).catch((e: any) => console.error('Failed to update linked sale payment:', e));
+      }
+
       toast({ title: 'Payment Recorded' });
       setPayOpen(false);
       await fetchDebtors();
+      // Notify sales history to refresh
+      window.dispatchEvent(new CustomEvent('zampos:sale-payment-changed'));
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Failed', description: e?.message ?? 'Could not record payment' });
     } finally {
