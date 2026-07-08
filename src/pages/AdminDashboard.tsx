@@ -67,7 +67,7 @@ type NoticeTarget = 'all' | string; // 'all' or business_id
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user, isLoading: authLoading, isSuperAdmin } = useAuthContext();
+  const { user, isLoading: authLoading, isSuperAdmin, role } = useAuthContext();
 
   const [businesses, setBusinesses] = useState<BusinessRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
