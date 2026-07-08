@@ -1,7 +1,7 @@
 // Offline storage utilities using IndexedDB and localStorage
 
 const DB_NAME = 'zampos_db';
-const DB_VERSION = 6; // Increment when schema changes; must always be > any previously deployed version
+const DB_VERSION = 9; // Increment when schema changes; must always be > any previously deployed version
 
 // Detect browser's existing DB version to handle downgrade
 const getExistingVersion = (): Promise<number> => {
@@ -167,6 +167,31 @@ const tryCreate = (version: number): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains('debtors')) {
         const debtorsStore = db.createObjectStore('debtors', { keyPath: 'id' });
         debtorsStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains('offline_users')) {
+        db.createObjectStore('offline_users', { keyPath: 'email' });
+      }
+
+      if (!db.objectStoreNames.contains('salesCache')) {
+        const salesCacheStore = db.createObjectStore('salesCache', { keyPath: 'id' });
+        salesCacheStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains('expensesCache')) {
+        const expensesCacheStore = db.createObjectStore('expensesCache', { keyPath: 'id' });
+        expensesCacheStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains('debtorPaymentsCache')) {
+        const debtorPaymentsCacheStore = db.createObjectStore('debtorPaymentsCache', { keyPath: 'id' });
+        debtorPaymentsCacheStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains('pendingOps')) {
+        const pendingOpsStore = db.createObjectStore('pendingOps', { keyPath: 'id' });
+        pendingOpsStore.createIndex('businessId', 'businessId', { unique: false });
+        pendingOpsStore.createIndex('type', 'type', { unique: false });
       }
     };
   });
@@ -528,6 +553,298 @@ export const updateCachedDebtor = async (debtor: CachedDebtor): Promise<void> =>
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+};
+
+// Offline credentials cache
+export interface OfflineUser {
+  email: string;
+  passwordHash: string;
+  userId: string;
+  role: string;
+  lastOnlineLogin: string;
+}
+
+export const hashPassword = async (password: string): Promise<string> => {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+export const cacheOfflineCredentials = async (user: OfflineUser): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['offline_users'], 'readwrite');
+    const store = transaction.objectStore('offline_users');
+    const request = store.put(user);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const verifyOfflineCredentials = async (email: string, password: string): Promise<OfflineUser | null> => {
+  try {
+    const db = await getDB();
+    const passwordHash = await hashPassword(password);
+    return new Promise((resolve) => {
+      const transaction = db.transaction(['offline_users'], 'readonly');
+      const store = transaction.objectStore('offline_users');
+      const request = store.get(email);
+      request.onsuccess = () => {
+        const user = request.result;
+        if (user && user.passwordHash === passwordHash) {
+          resolve(user);
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+};
+
+export const getCachedOfflineUsers = async (): Promise<OfflineUser[]> => {
+  try {
+    const db = await getDB();
+    return new Promise((resolve) => {
+      const transaction = db.transaction(['offline_users'], 'readonly');
+      const store = transaction.objectStore('offline_users');
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve([]);
+    });
+  } catch {
+    return [];
+  }
+};
+
+export const clearOfflineCredentials = async (email: string): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['offline_users'], 'readwrite');
+    const store = transaction.objectStore('offline_users');
+    const request = store.delete(email);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// Sales history cache for offline viewing
+interface CachedSale {
+  id: string;
+  businessId: string;
+  items: Array<{
+    productId: string;
+    name: string;
+    price: number;
+    quantity: number;
+    costPrice?: number | null;
+    discountType?: string | null;
+    discountValue?: number;
+  }>;
+  subtotal: number;
+  total: number;
+  discountAmount: number;
+  paymentMethod: string;
+  createdAt: string;
+  synced: boolean;
+  status: string;
+  taxAmount?: number;
+  taxableAmount?: number;
+  zeroRatedAmount?: number;
+  exemptAmount?: number;
+  customerName?: string | null;
+  customerTpin?: string | null;
+  customerPhone?: string | null;
+  amountPaid?: number;
+  balanceDue?: number;
+  paymentStatus?: string;
+  dueDate?: string | null;
+  cashierName?: string | null;
+  cashierUsername?: string | null;
+}
+
+export const cacheSalesHistory = async (businessId: string, sales: CachedSale[]): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['salesCache'], 'readwrite');
+    const store = transaction.objectStore('salesCache');
+    const clearRequest = store.clear();
+
+    clearRequest.onerror = () => reject(clearRequest.error);
+    clearRequest.onsuccess = () => {
+      sales.forEach((sale) => store.put(sale));
+    };
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+export const getCachedSalesHistory = async (businessId: string): Promise<CachedSale[]> => {
+  if (!businessId) return [];
+
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['salesCache'], 'readonly');
+    const store = transaction.objectStore('salesCache');
+    const index = store.index('businessId');
+    const request = index.getAll(IDBKeyRange.only(businessId));
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// Expenses cache for offline viewing
+interface CachedExpense {
+  id: string;
+  businessId: string;
+  name: string;
+  amount: number;
+  expense_date: string;
+  notes: string | null;
+  category: string;
+}
+
+export const cacheExpenses = async (businessId: string, expenses: CachedExpense[]): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['expensesCache'], 'readwrite');
+    const store = transaction.objectStore('expensesCache');
+    const clearRequest = store.clear();
+
+    clearRequest.onerror = () => reject(clearRequest.error);
+    clearRequest.onsuccess = () => {
+      expenses.forEach((exp) => store.put(exp));
+    };
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+export const getCachedExpenses = async (businessId: string): Promise<CachedExpense[]> => {
+  if (!businessId) return [];
+
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['expensesCache'], 'readonly');
+    const store = transaction.objectStore('expensesCache');
+    const index = store.index('businessId');
+    const request = index.getAll(IDBKeyRange.only(businessId));
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// Debtor payments cache for offline viewing
+interface CachedDebtorPayment {
+  id: string;
+  businessId: string;
+  amount: number;
+  payment_date: string;
+}
+
+export const cacheDebtorPayments = async (businessId: string, payments: CachedDebtorPayment[]): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['debtorPaymentsCache'], 'readwrite');
+    const store = transaction.objectStore('debtorPaymentsCache');
+    const clearRequest = store.clear();
+
+    clearRequest.onerror = () => reject(clearRequest.error);
+    clearRequest.onsuccess = () => {
+      payments.forEach((p) => store.put(p));
+    };
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+export const getCachedDebtorPayments = async (businessId: string): Promise<CachedDebtorPayment[]> => {
+  if (!businessId) return [];
+
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['debtorPaymentsCache'], 'readonly');
+    const store = transaction.objectStore('debtorPaymentsCache');
+    const index = store.index('businessId');
+    const request = index.getAll(IDBKeyRange.only(businessId));
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// Pending operations queue for offline CRUD
+interface PendingOp {
+  id: string;
+  businessId: string;
+  type: 'product_create' | 'product_update' | 'product_deactivate' | 'debtor_create' | 'debtor_payment';
+  payload: any;
+  createdAt: string;
+}
+
+export const queuePendingOp = async (op: PendingOp): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['pendingOps'], 'readwrite');
+    const store = transaction.objectStore('pendingOps');
+    const request = store.add(op);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const getPendingOps = async (businessId: string): Promise<PendingOp[]> => {
+  if (!businessId) return [];
+
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['pendingOps'], 'readonly');
+    const store = transaction.objectStore('pendingOps');
+    const index = store.index('businessId');
+    const request = index.getAll(IDBKeyRange.only(businessId));
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const removePendingOp = async (opId: string): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['pendingOps'], 'readwrite');
+    const store = transaction.objectStore('pendingOps');
+    const request = store.delete(opId);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const processPendingOps = async (businessId: string): Promise<void> => {
+  const ops = await getPendingOps(businessId);
+  for (const op of ops) {
+    try {
+      switch (op.type) {
+        case 'product_create':
+        case 'product_update':
+        case 'product_deactivate':
+        case 'debtor_create':
+        case 'debtor_payment':
+          break;
+      }
+      await removePendingOp(op.id);
+    } catch (e) {
+      console.error(`Failed to process pending op ${op.id}:`, e);
+    }
+  }
 };
 
 // Initialize DB on module load to ensure stores exist

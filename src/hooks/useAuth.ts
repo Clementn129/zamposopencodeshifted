@@ -133,10 +133,59 @@ export const useAuth = () => {
         setTimeout(async () => {
           const { role, isSuperAdmin } = await resolveRole(data.session.user.id);
           setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
+          try {
+            const { cacheOfflineCredentials, hashPassword } = await import('@/lib/offlineStorage');
+            const passwordHash = await hashPassword(password);
+            await cacheOfflineCredentials({
+              email,
+              passwordHash,
+              userId: data.session.user.id,
+              role,
+              lastOnlineLogin: new Date().toISOString(),
+            });
+          } catch (e) {
+            console.warn('Failed to cache credentials for offline use:', e);
+          }
         }, 0);
       }
     }
     return { error };
+  };
+
+  const signInOffline = async (email: string, password: string): Promise<{ error: Error | null }> => {
+    try {
+      const { verifyOfflineCredentials } = await import('@/lib/offlineStorage');
+      const cached = await verifyOfflineCredentials(email, password);
+      if (!cached) {
+        return { error: new Error('Invalid email or password') };
+      }
+      const mockUser = {
+        id: cached.userId,
+        email: cached.email,
+        user_metadata: {},
+        app_metadata: {},
+        aud: 'authenticated',
+        created_at: cached.lastOnlineLogin,
+      } as User;
+      const mockSession = {
+        access_token: 'offline-session-' + cached.userId,
+        refresh_token: 'offline-refresh-' + cached.userId,
+        expires_in: 86400,
+        expires_at: Math.floor(Date.now() / 1000) + 86400,
+        token_type: 'bearer',
+        user: mockUser,
+      } as Session;
+      setAuthState({
+        user: mockUser,
+        session: mockSession,
+        isLoading: false,
+        isSuperAdmin: cached.role === 'super_admin',
+        role: cached.role as UserRole,
+      });
+      return { error: null };
+    } catch (e) {
+      return { error: new Error('Offline login failed') };
+    }
   };
 
   const signOut = async () => {
@@ -148,6 +197,7 @@ export const useAuth = () => {
     ...authState,
     signUp,
     signIn,
+    signInOffline,
     signOut,
   };
 };

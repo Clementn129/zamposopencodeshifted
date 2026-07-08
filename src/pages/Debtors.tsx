@@ -19,7 +19,7 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useProducts } from '@/hooks/useProducts';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { cacheDebtors, getCachedDebtors, updateCachedDebtor, generateOfflineId, updateCachedProductStock } from '@/lib/offlineStorage';
+import { cacheDebtors, getCachedDebtors, updateCachedDebtor, generateOfflineId, updateCachedProductStock, queuePendingOp } from '@/lib/offlineStorage';
 
 type Debtor = {
   id: string;
@@ -186,6 +186,10 @@ const Debtors = () => {
 
   const fetchPayments = async (debtorId: string) => {
     try {
+      if (!isOnline) {
+        setPayments([]);
+        return;
+      }
       const { data, error } = await supabase
         .from('debtor_payments')
         .select('*')
@@ -203,11 +207,12 @@ const Debtors = () => {
       })));
     } catch (e) {
       console.error('Failed to fetch payments:', e);
+      setPayments([]);
     }
   };
 
   useEffect(() => {
-    if (business?.id && isOnline) {
+    if (business?.id) {
       fetchDebtors();
     }
   }, [business?.id, isOnline]);
@@ -277,12 +282,6 @@ const Debtors = () => {
 
     setSaving(true);
     try {
-      if (!isOnline) {
-        toast({ variant: 'destructive', title: 'Offline', description: 'Connect to internet to create credit sales.' });
-        setSaving(false);
-        return;
-      }
-
       const now = new Date().toISOString();
       const offlineId = generateOfflineId();
       const items = creditCart.map(l => ({
@@ -298,50 +297,93 @@ const Debtors = () => {
       }));
       const total = creditCartTotal;
 
-      const { data: returnedSaleId, error: saleErr } = await (supabase.rpc as any)('sync_offline_sale', {
-        p_business_id: business!.id,
-        p_offline_id: offlineId,
-        p_items: items,
-        p_subtotal: total,
-        p_total: total,
-        p_discount_amount: 0,
-        p_discount_type: null,
-        p_payment_method: 'credit',
-        p_created_at: now,
-        p_tax_amount: 0,
-        p_taxable_amount: 0,
-        p_zero_rated_amount: 0,
-        p_exempt_amount: 0,
-        p_customer_name: customerName.trim(),
-        p_customer_tpin: null,
-        p_amount_paid: 0,
-        p_due_date: dueDate || null,
-        p_customer_phone: customerPhone.trim() || null,
-      });
+      if (isOnline) {
+        const { data: returnedSaleId, error: saleErr } = await (supabase.rpc as any)('sync_offline_sale', {
+          p_business_id: business!.id,
+          p_offline_id: offlineId,
+          p_items: items,
+          p_subtotal: total,
+          p_total: total,
+          p_discount_amount: 0,
+          p_discount_type: null,
+          p_payment_method: 'credit',
+          p_created_at: now,
+          p_tax_amount: 0,
+          p_taxable_amount: 0,
+          p_zero_rated_amount: 0,
+          p_exempt_amount: 0,
+          p_customer_name: customerName.trim(),
+          p_customer_tpin: null,
+          p_amount_paid: 0,
+          p_due_date: dueDate || null,
+          p_customer_phone: customerPhone.trim() || null,
+        });
 
-      if (saleErr) throw saleErr;
+        if (saleErr) throw saleErr;
 
-      for (const line of creditCart) {
-        const p = activeProducts.find(x => x.id === line.productId);
-        if (p) {
-          await updateCachedProductStock(line.productId, Math.max(0, Number(p.stock ?? 0) - line.quantity));
+        for (const line of creditCart) {
+          const p = activeProducts.find(x => x.id === line.productId);
+          if (p) {
+            await updateCachedProductStock(line.productId, Math.max(0, Number(p.stock ?? 0) - line.quantity));
+          }
         }
+
+        const { error: debtorErr } = await supabase.from('debtors').insert({
+          business_id: business!.id,
+          sale_id: returnedSaleId,
+          customer_name: customerName.trim(),
+          customer_phone: customerPhone.trim() || null,
+          amount_owed: total,
+          amount_paid: 0,
+          status: 'unpaid',
+          notes: notes.trim() || null,
+        });
+
+        if (debtorErr) throw debtorErr;
+
+        toast({ title: 'Credit Sale Recorded', description: `ZMW ${total.toFixed(2)} — stock deducted.` });
+      } else {
+        // Offline: save debtor locally, queue for sync (pending op creates the sale via RPC)
+        for (const line of creditCart) {
+          const p = activeProducts.find(x => x.id === line.productId);
+          if (p) {
+            await updateCachedProductStock(line.productId, Math.max(0, Number(p.stock ?? 0) - line.quantity));
+          }
+        }
+
+        const tempDebtorId = generateOfflineId();
+        await cacheDebtors([...(await getCachedDebtors(business!.id)), {
+          id: tempDebtorId,
+          businessId: business!.id,
+          customerName: customerName.trim(),
+          customerPhone: customerPhone.trim() || null,
+          amountOwed: total,
+          amountPaid: 0,
+          status: 'unpaid',
+          notes: notes.trim() || null,
+          createdAt: now,
+        }]);
+
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: business!.id,
+          type: 'debtor_create',
+          payload: {
+            offlineId,
+            items,
+            total,
+            customerName: customerName.trim(),
+            customerPhone: customerPhone.trim() || null,
+            notes: notes.trim() || null,
+            dueDate: dueDate || null,
+            createdAt: now,
+          },
+          createdAt: now,
+        });
+
+        toast({ title: 'Saved Offline', description: 'Credit sale will sync when online.' });
       }
 
-      const { error: debtorErr } = await supabase.from('debtors').insert({
-        business_id: business!.id,
-        sale_id: returnedSaleId,
-        customer_name: customerName.trim(),
-        customer_phone: customerPhone.trim() || null,
-        amount_owed: total,
-        amount_paid: 0,
-        status: 'unpaid',
-        notes: notes.trim() || null,
-      });
-
-      if (debtorErr) throw debtorErr;
-
-      toast({ title: 'Credit Sale Recorded', description: `ZMW ${total.toFixed(2)} — stock deducted.` });
       setAddOpen(false);
       resetAddForm();
       await fetchDebtors();
@@ -376,65 +418,90 @@ const Debtors = () => {
 
     setSaving(true);
     try {
-      // Insert payment record
-      const { error: payError } = await supabase.from('debtor_payments').insert({
-        debtor_id: selectedDebtor.id,
-        amount,
-        notes: paymentNotes.trim() || null,
-      });
-
-      if (payError) throw payError;
-
-      // Update debtor
       const newAmountPaid = selectedDebtor.amountPaid + amount;
       const newStatus = newAmountPaid >= selectedDebtor.amountOwed ? 'paid' : 'partially_paid';
 
-      const { error: updateError } = await supabase
-        .from('debtors')
-        .update({ amount_paid: newAmountPaid, status: newStatus })
-        .eq('id', selectedDebtor.id);
+      if (isOnline) {
+        // Insert payment record
+        const { error: payError } = await supabase.from('debtor_payments').insert({
+          debtor_id: selectedDebtor.id,
+          amount,
+          notes: paymentNotes.trim() || null,
+        });
 
-      if (updateError) throw updateError;
+        if (payError) throw payError;
 
-      // If this debtor has a linked sale, also update the sale's payment status
-      const { data: debtorData } = await supabase
-        .from('debtors')
-        .select('sale_id')
-        .eq('id', selectedDebtor.id)
-        .maybeSingle();
+        // Update debtor
+        const { error: updateError } = await supabase
+          .from('debtors')
+          .update({ amount_paid: newAmountPaid, status: newStatus })
+          .eq('id', selectedDebtor.id);
 
-      if (debtorData?.sale_id) {
-        try {
-          const { data: saleRow } = await supabase
-            .from('sales')
-            .select('amount_paid, total')
-            .eq('id', debtorData.sale_id)
-            .maybeSingle();
+        if (updateError) throw updateError;
 
-          if (saleRow) {
-            const currentPaid = Number(saleRow.amount_paid || 0);
-            const newSalePaid = Math.min(currentPaid + amount, Number(saleRow.total || 0));
+        // If this debtor has a linked sale, also update the sale's payment status
+        const { data: debtorData } = await supabase
+          .from('debtors')
+          .select('sale_id')
+          .eq('id', selectedDebtor.id)
+          .maybeSingle();
 
-            await supabase.from('sale_payments').insert({
-              sale_id: debtorData.sale_id,
-              business_id: business!.id,
-              amount,
-              payment_method: 'cash',
-              notes: 'Payment via debtors',
-              recorded_by: user!.id,
-            });
-
-            await supabase
+        if (debtorData?.sale_id) {
+          try {
+            const { data: saleRow } = await supabase
               .from('sales')
-              .update({ amount_paid: newSalePaid })
-              .eq('id', debtorData.sale_id);
+              .select('amount_paid, total')
+              .eq('id', debtorData.sale_id)
+              .maybeSingle();
+
+            if (saleRow) {
+              const currentPaid = Number(saleRow.amount_paid || 0);
+              const newSalePaid = Math.min(currentPaid + amount, Number(saleRow.total || 0));
+
+              await supabase.from('sale_payments').insert({
+                sale_id: debtorData.sale_id,
+                business_id: business!.id,
+                amount,
+                payment_method: 'cash',
+                notes: 'Payment via debtors',
+                recorded_by: user!.id,
+              });
+
+              await supabase
+                .from('sales')
+                .update({ amount_paid: newSalePaid })
+                .eq('id', debtorData.sale_id);
+            }
+          } catch (e: any) {
+            console.error('Failed to update linked sale payment:', e);
           }
-        } catch (e: any) {
-          console.error('Failed to update linked sale payment:', e);
         }
+      } else {
+        // Offline: update local cache and queue for sync
+        const cached = await getCachedDebtors(business!.id);
+        const idx = cached.findIndex((d) => d.id === selectedDebtor.id);
+        if (idx >= 0) {
+          cached[idx].amountPaid = newAmountPaid;
+          cached[idx].status = newStatus;
+          await cacheDebtors(cached);
+        }
+
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: business!.id,
+          type: 'debtor_payment',
+          payload: {
+            debtorId: selectedDebtor.id,
+            amount,
+            notes: paymentNotes.trim() || null,
+            userId: user!.id,
+          },
+          createdAt: new Date().toISOString(),
+        });
+
+        toast({ title: 'Saved Offline', description: 'Payment will sync when online.' });
       }
 
-      toast({ title: 'Payment Recorded' });
       setPayOpen(false);
       await fetchDebtors();
       // Notify sales history to refresh
@@ -549,7 +616,7 @@ const Debtors = () => {
   return (
     <>
       <ConnectionStatus />
-      <OfflineBanner isOnline={isOnline} message="Offline mode - View only, changes require internet" />
+      <OfflineBanner isOnline={isOnline} message="Offline mode - Changes saved locally and sync when online" />
       <div className="min-h-screen bg-background safe-area-inset">
         <header className="bg-card border-b border-border px-4 py-4">
           <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -561,13 +628,13 @@ const Debtors = () => {
                 <h1 className="font-display font-bold text-lg flex items-center gap-2">
                   <Users className="h-5 w-5" /> Debtors
                 </h1>
-                <p className="text-xs text-muted-foreground">{isOnline ? 'Online' : 'Offline (view only)'}</p>
+                <p className="text-xs text-muted-foreground">{isOnline ? 'Online' : 'Offline (changes sync when online)'}</p>
               </div>
             </div>
 
             <Dialog open={addOpen} onOpenChange={setAddOpen}>
               <DialogTrigger asChild>
-                <Button variant="pos" size="sm" disabled={!isOnline}>
+                <Button variant="pos" size="sm">
                   <Plus className="h-4 w-4 mr-2" /> Add
                 </Button>
               </DialogTrigger>
@@ -762,7 +829,7 @@ const Debtors = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           {debtor.status !== 'paid' && (
-                            <Button variant="outline" size="sm" onClick={() => openPaymentDialog(debtor)} disabled={!isOnline}>
+                            <Button variant="outline" size="sm" onClick={() => openPaymentDialog(debtor)}>
                               <DollarSign className="h-4 w-4 mr-1" /> Pay
                             </Button>
                           )}

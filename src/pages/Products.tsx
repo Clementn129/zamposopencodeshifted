@@ -50,6 +50,9 @@ import {
   saveOfflineStockUpdate,
   updateCachedProductStock,
   generateOfflineId,
+  queuePendingOp,
+  cacheProducts,
+  getCachedProducts,
 } from "@/lib/offlineStorage";
 
 const NEW_CAT_VALUE = "__new__";
@@ -202,10 +205,6 @@ const Products = () => {
       navigate("/auth");
       return;
     }
-    if (!isOnline) {
-      toast({ variant: "destructive", title: "Offline", description: "Connect to internet to edit products." });
-      return;
-    }
     if (!name.trim()) {
       toast({ variant: "destructive", title: "Missing name" });
       return;
@@ -250,16 +249,62 @@ const Products = () => {
         item_type: resolvedItemType,
       };
 
-      if (editing) {
-        const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
-        if (error) throw error;
-        toast({ title: "Updated" });
+      if (isOnline) {
+        if (editing) {
+          const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
+          if (error) throw error;
+          toast({ title: "Updated" });
+        } else {
+          const { error } = await supabase
+            .from("products")
+            .insert({ business_id: business.id, is_active: true, ...payload });
+          if (error) throw error;
+          toast({ title: "Created" });
+        }
       } else {
-        const { error } = await supabase
-          .from("products")
-          .insert({ business_id: business.id, is_active: true, ...payload });
-        if (error) throw error;
-        toast({ title: "Created" });
+        // Offline: save to local cache and queue for sync
+        const cached = await getCachedProducts(business.id);
+        if (editing) {
+          const idx = cached.findIndex((p) => p.id === editing.id);
+          if (idx >= 0) {
+            cached[idx] = { ...cached[idx], ...payload as any };
+          }
+          await queuePendingOp({
+            id: generateOfflineId(),
+            businessId: business.id,
+            type: 'product_update',
+            payload: { ...payload, productId: editing.id },
+            createdAt: new Date().toISOString(),
+          });
+          toast({ title: "Updated (offline)" });
+        } else {
+          const tempId = generateOfflineId();
+          cached.push({
+            id: tempId,
+            businessId: business.id,
+            name: payload.name,
+            price: payload.price,
+            costPrice: payload.cost_price,
+            stock: payload.stock,
+            minimumStock: payload.minimum_stock,
+            category: payload.category,
+            isActive: true,
+            taxCategory: payload.tax_category || 'taxable',
+            imageUrl: payload.image_url,
+            imagePath: payload.image_url,
+            parentId: null,
+            variantLabel: null,
+          } as any);
+          await queuePendingOp({
+            id: generateOfflineId(),
+            businessId: business.id,
+            type: 'product_create',
+            payload: { ...payload },
+            createdAt: new Date().toISOString(),
+          });
+          toast({ title: "Created (offline)" });
+        }
+        await cacheProducts(cached);
       }
 
       setOpen(false);
@@ -277,13 +322,26 @@ const Products = () => {
   };
 
   const deactivate = async (p: Product) => {
-    if (!isOnline) {
-      toast({ variant: "destructive", title: "Offline" });
-      return;
-    }
     try {
-      const { error } = await supabase.from("products").update({ is_active: false }).eq("id", p.id);
-      if (error) throw error;
+      if (isOnline) {
+        const { error } = await supabase.from("products").update({ is_active: false }).eq("id", p.id);
+        if (error) throw error;
+      } else {
+        // Offline: update local cache and queue
+        const cached = await getCachedProducts(business!.id);
+        const idx = cached.findIndex((x) => x.id === p.id);
+        if (idx >= 0) {
+          cached[idx].isActive = false;
+          await cacheProducts(cached);
+        }
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: business!.id,
+          type: 'product_deactivate',
+          payload: { productId: p.id },
+          createdAt: new Date().toISOString(),
+        });
+      }
       toast({ title: "Removed" });
       await refetch();
     } catch (e) {
@@ -629,7 +687,7 @@ const Products = () => {
                   <span className="truncate">{labels.productsTitle}</span>
                 </h1>
                 <p className="text-xs text-muted-foreground">
-                  {isOnline ? "Online" : "Offline (view only)"}
+                  {isOnline ? "Online" : "Offline (changes sync when online)"}
                 </p>
               </div>
             </div>
@@ -805,7 +863,6 @@ const Products = () => {
                                   variant="outline"
                                   size="icon"
                                   onClick={() => openEdit(p)}
-                                  disabled={!isOnline}
                                   aria-label="Edit"
                                 >
                                   <Pencil className="h-4 w-4" />
@@ -814,7 +871,6 @@ const Products = () => {
                                   variant="outline"
                                   size="icon"
                                   onClick={() => deactivate(p)}
-                                  disabled={!isOnline}
                                   aria-label="Remove"
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -841,7 +897,6 @@ const Products = () => {
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => openEdit(v)}
-                                        disabled={!isOnline}
                                         aria-label="Edit variant"
                                       >
                                         <Pencil className="h-4 w-4" />
@@ -860,7 +915,6 @@ const Products = () => {
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => deactivate(v)}
-                                        disabled={!isOnline}
                                         aria-label="Remove variant"
                                       >
                                         <Trash2 className="h-4 w-4 text-destructive" />
@@ -908,7 +962,7 @@ const Products = () => {
                 : `Add ${itemType === "service" ? "Service" : "Product"}`}
             </DialogTitle>
             <DialogDescription>
-              {isOnline ? "" : "Connect to internet to save changes."}
+              {isOnline ? "" : "Changes will sync when online."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1075,7 +1129,7 @@ const Products = () => {
               variant="pos-accent"
               className="w-full"
               onClick={save}
-              disabled={!isOnline || saving}
+              disabled={saving}
             >
               {saving ? "Saving…" : "Save"}
             </Button>

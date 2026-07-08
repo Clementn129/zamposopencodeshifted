@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 const Auth = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { signIn, signUp, user, role } = useAuthContext();
+  const { signIn, signInOffline, signUp, user, role } = useAuthContext();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -69,11 +69,30 @@ const Auth = () => {
       const { error } = await signIn(loginEmail, loginPassword);
       
       if (error) {
-        toast({
-          variant: 'destructive',
-          title: 'Login Failed',
-          description: error.message || 'Invalid email or password',
-        });
+        const msg = String(error.message || '').toLowerCase();
+        const isNetworkError = /fetch|network|timeout|offline|failed to connect/i.test(msg);
+        
+        if (isNetworkError) {
+          const { error: offlineError } = await signInOffline(loginEmail, loginPassword);
+          if (offlineError) {
+            toast({
+              variant: 'destructive',
+              title: 'Offline Login Failed',
+              description: 'No internet and no cached credentials available.',
+            });
+          } else {
+            toast({
+              title: 'Offline Mode',
+              description: 'Signed in with cached credentials.',
+            });
+          }
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Login Failed',
+            description: error.message || 'Invalid email or password',
+          });
+        }
       } else {
         toast({
           title: 'Welcome back!',
@@ -81,11 +100,19 @@ const Auth = () => {
         });
       }
     } catch (err) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Something went wrong. Please try again.',
-      });
+      const { error: offlineError } = await signInOffline(loginEmail, loginPassword);
+      if (offlineError) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Something went wrong. Please try again.',
+        });
+      } else {
+        toast({
+          title: 'Offline Mode',
+          description: 'Signed in with cached credentials.',
+        });
+      }
     } finally {
       setIsLoading(false);
     }

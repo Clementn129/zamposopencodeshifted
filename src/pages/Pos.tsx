@@ -20,7 +20,7 @@ import { useBusiness } from "@/hooks/useBusiness";
 import { useProducts } from "@/hooks/useProducts";
 import { useSalesSync } from "@/hooks/useSalesSync";
 import { useBusinessType } from "@/hooks/useBusinessType";
-import { saveOfflineSale, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem } from "@/lib/offlineStorage";
+import { saveOfflineSale, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem, queuePendingOp, getCachedDebtors, cacheDebtors } from "@/lib/offlineStorage";
 import { calculateTax, TaxCategory } from "@/lib/tax";
 import { supabase } from "@/integrations/supabase/client";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -376,6 +376,49 @@ const Pos = () => {
           title: paymentMode === "credit" ? "Credit sale recorded" : paymentMode === "partial" ? "Partial sale recorded" : "Sale completed",
           description: paymentMode === "full" ? "Stock updated." : `Balance owed: ZMW ${(total - amountPaidNow).toFixed(2)}`,
         });
+      } else if (isCredit) {
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: business.id,
+          type: 'debtor_create',
+          payload: {
+            offlineId: saleId,
+            items: salePayload.items,
+            total,
+            subtotal,
+            discountAmount,
+            discountType: saleDiscountType,
+            paymentMethod,
+            taxAmount: tax?.taxAmount || 0,
+            taxableAmount: tax?.taxableAmount || 0,
+            zeroRatedAmount: tax?.zeroRatedAmount || 0,
+            exemptAmount: tax?.exemptAmount || 0,
+            customerName: customerName.trim(),
+            customerPhone: customerPhone.trim() || null,
+            notes: creditNotes.trim() || null,
+            dueDate: dueDate || null,
+            createdAt,
+            amountPaid: amountPaidNow,
+          },
+          createdAt,
+        });
+        const existingDebtors = await getCachedDebtors(business.id);
+        await cacheDebtors([...existingDebtors, {
+          id: saleId,
+          businessId: business.id,
+          customerName: customerName.trim(),
+          customerPhone: customerPhone.trim() || null,
+          amountOwed: total,
+          amountPaid: amountPaidNow,
+          status: amountPaidNow > 0 ? 'partially_paid' : 'unpaid',
+          notes: creditNotes.trim() || null,
+          createdAt,
+        }]);
+        for (const line of cart) {
+          const p = activeProducts.find((x) => x.id === line.productId);
+          await updateCachedProductStock(line.productId, Math.max(0, Number(p?.stock ?? 0) - line.quantity));
+        }
+        toast({ title: "Credit sale saved offline", description: "Will sync when online." });
       } else {
         await saveOfflineSale(salePayload);
         for (const line of cart) {

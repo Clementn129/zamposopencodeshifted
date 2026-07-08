@@ -19,7 +19,7 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { useBusiness } from "@/hooks/useBusiness";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { supabase } from "@/integrations/supabase/client";
-import { getUnsyncedSales } from "@/lib/offlineStorage";
+import { getUnsyncedSales, cacheSalesHistory, getCachedSalesHistory, cacheExpenses, getCachedExpenses, cacheDebtorPayments, getCachedDebtorPayments, markSaleAsSynced } from "@/lib/offlineStorage";
 import { exportSalesToCsv } from "@/lib/csvExport";
 import { useToast } from "@/hooks/use-toast";
 
@@ -132,6 +132,10 @@ const SalesHistory = () => {
 
     setLoading(true);
     try {
+      let onlineSalesFetched = false;
+      let onlineExpensesFetched = false;
+      let onlinePaymentsFetched = false;
+
       if (isOnline) {
         // Sales — server-filtered by business + date window, explicit columns, capped.
         let salesQ = supabase
@@ -145,32 +149,33 @@ const SalesHistory = () => {
         const { data: salesData, error: salesError } = await salesQ;
 
         if (!salesError && salesData) {
-          setSales(
-            salesData.map((s: any) => ({
-              id: s.id,
-              items: s.items as SaleItem[],
-              subtotal: Number(s.subtotal),
-              total: Number(s.total),
-              discountAmount: Number(s.discount_amount || 0),
-              paymentMethod: s.payment_method,
-              createdAt: s.created_at,
-              synced: true,
-              status: s.status || 'completed',
-              taxAmount: Number(s.tax_amount || 0),
-              taxableAmount: Number(s.taxable_amount || 0),
-              zeroRatedAmount: Number(s.zero_rated_amount || 0),
-              exemptAmount: Number(s.exempt_amount || 0),
-              customerName: s.customer_name,
-              customerTpin: s.customer_tpin,
-              customerPhone: s.customer_phone,
-              amountPaid: Number(s.amount_paid ?? s.total ?? 0),
-              balanceDue: Number(s.balance_due ?? 0),
-              paymentStatus: (s.payment_status as PaymentStatus) || 'paid',
-              dueDate: s.due_date,
-              cashierName: s.cashier_name,
-              cashierUsername: s.cashier_username,
-            }))
-          );
+          const mapped = salesData.map((s: any) => ({
+            id: s.id,
+            items: s.items as SaleItem[],
+            subtotal: Number(s.subtotal),
+            total: Number(s.total),
+            discountAmount: Number(s.discount_amount || 0),
+            paymentMethod: s.payment_method,
+            createdAt: s.created_at,
+            synced: true,
+            status: s.status || 'completed',
+            taxAmount: Number(s.tax_amount || 0),
+            taxableAmount: Number(s.taxable_amount || 0),
+            zeroRatedAmount: Number(s.zero_rated_amount || 0),
+            exemptAmount: Number(s.exempt_amount || 0),
+            customerName: s.customer_name,
+            customerTpin: s.customer_tpin,
+            customerPhone: s.customer_phone,
+            amountPaid: Number(s.amount_paid ?? s.total ?? 0),
+            balanceDue: Number(s.balance_due ?? 0),
+            paymentStatus: (s.payment_status as PaymentStatus) || 'paid',
+            dueDate: s.due_date,
+            cashierName: s.cashier_name,
+            cashierUsername: s.cashier_username,
+          }));
+          setSales(mapped);
+          onlineSalesFetched = true;
+          cacheSalesHistory(business.id, mapped).catch(console.error);
         }
 
         // Expenses — server-filtered by date window
@@ -186,6 +191,19 @@ const SalesHistory = () => {
 
         if (!expensesError && expensesData) {
           setExpenses(expensesData as any);
+          onlineExpensesFetched = true;
+          cacheExpenses(
+            business.id,
+            expensesData.map((e: any) => ({
+              id: e.id,
+              businessId: business.id,
+              name: e.name,
+              amount: Number(e.amount),
+              expense_date: e.expense_date,
+              notes: e.notes,
+              category: e.category || 'business',
+            }))
+          ).catch(console.error);
         }
 
         // Debtor payments — single query with inner join (fixes N+1, server-side filter)
@@ -200,18 +218,82 @@ const SalesHistory = () => {
         const { data: paymentsData, error: paymentsError } = await payQ;
 
         if (!paymentsError && paymentsData) {
-          setDebtorPayments(
+          const mapped = paymentsData.map((p: any) => ({
+            id: p.id,
+            amount: Number(p.amount),
+            payment_date: p.payment_date,
+          }));
+          setDebtorPayments(mapped);
+          onlinePaymentsFetched = true;
+          cacheDebtorPayments(
+            business.id,
             paymentsData.map((p: any) => ({
               id: p.id,
+              businessId: business.id,
               amount: Number(p.amount),
               payment_date: p.payment_date,
             }))
-          );
+          ).catch(console.error);
+        }
+      }
+
+      // Fall back to cached sales when offline or online fetch didn't produce results
+      if (!onlineSalesFetched) {
+        const cached = await getCachedSalesHistory(business.id);
+        if (cached.length > 0) {
+          setSales(cached as Sale[]);
+        }
+      }
+
+      // Fall back to cached expenses
+      if (!onlineExpensesFetched) {
+        const cached = await getCachedExpenses(business.id);
+        if (cached.length > 0) {
+          setExpenses(cached as any);
+        }
+      }
+
+      // Fall back to cached debtor payments
+      if (!onlinePaymentsFetched) {
+        const cached = await getCachedDebtorPayments(business.id);
+        if (cached.length > 0) {
+          setDebtorPayments(cached.map((p) => ({
+            id: p.id,
+            amount: p.amount,
+            payment_date: p.payment_date,
+          })));
         }
       }
 
       // Fetch offline unsynced sales
-      const unsynced = await getUnsyncedSales(business.id);
+      let unsynced = await getUnsyncedSales(business.id);
+
+      // Clean up orphaned offline sales: if online and the server already has a
+      // matching sale (same total, customer, payment method), mark it synced.
+      if (isOnline && unsynced.length > 0 && onlineSalesFetched) {
+        const { data: serverSales } = await supabase
+          .from("sales")
+          .select("id, total, customer_name, payment_method")
+          .eq("business_id", business.id)
+          .limit(500);
+        if (serverSales) {
+          for (const u of unsynced) {
+            const match = serverSales.find((s) => {
+              const sTotal = Number(s.total);
+              const uTotal = Number(u.total);
+              return Math.abs(sTotal - uTotal) < 0.01 &&
+                (s.customer_name ?? null) === (u.customerName ?? null) &&
+                s.payment_method === u.paymentMethod;
+            });
+            if (match) {
+              await markSaleAsSynced(u.id);
+            }
+          }
+          // Re-fetch unsynced after marking some as synced
+          unsynced = await getUnsyncedSales(business.id);
+        }
+      }
+
       setOfflineSales(
         unsynced.map((s) => ({
           id: s.id,

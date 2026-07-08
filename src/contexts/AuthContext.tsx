@@ -10,14 +10,15 @@ interface AuthContextType {
   role: UserRole;
   signUp: (email: string, password: string, fullName: string, businessName: string, phone?: string, address?: string, affiliateCode?: string) => Promise<{ data: any; error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signInOffline: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const auth = useAuth();
-  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
+  const { signInOffline, ...auth } = useAuth();
+  return <AuthContext.Provider value={{ ...auth, signInOffline }}>{children}</AuthContext.Provider>;
 };
 
 export const useAuthContext = () => {
