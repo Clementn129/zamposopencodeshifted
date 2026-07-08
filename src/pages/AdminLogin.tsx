@@ -45,11 +45,17 @@ const AdminLogin = () => {
         .maybeSingle();
 
       if (roleError || !roleData) {
+        // Fetch any roles this user has for diagnostic help
+        const { data: allRoles } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', authData.user.id);
+        const roleList = allRoles?.map((r: any) => r.role).join(', ') || 'none';
         await supabase.auth.signOut();
         toast({
           variant: 'destructive',
           title: 'Access Denied',
-          description: 'You do not have admin access.',
+          description: `You need super_admin role. Found: ${roleList}${roleError ? ' (' + roleError.message + ')' : ''}`,
         });
         return;
       }
@@ -58,6 +64,7 @@ const AdminLogin = () => {
         title: 'Welcome, Admin!',
         description: 'You have successfully logged in.',
       });
+      await new Promise((r) => setTimeout(r, 300));
       navigate('/admin');
     } catch (err) {
       toast({

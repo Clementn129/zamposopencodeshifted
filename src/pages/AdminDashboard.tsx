@@ -75,6 +75,12 @@ const AdminDashboard = () => {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [adminChecked, setAdminChecked] = useState(false);
+  const [roleTimeout, setRoleTimeout] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setRoleTimeout(true), 5000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Subscription extension state
   const [extendAmount, setExtendAmount] = useState<Record<string, number>>({});
@@ -89,25 +95,12 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     if (authLoading) return;
-    
-    if (!user) {
-      navigate("/admin-login");
-      return;
-    }
-
-    // Give auth state time to settle and check super admin status
-    const timer = setTimeout(() => {
-      setAdminChecked(true);
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, [authLoading, user, navigate]);
-
-  useEffect(() => {
-    if (adminChecked && !isSuperAdmin) {
-      navigate("/admin-login");
-    }
-  }, [adminChecked, isSuperAdmin, navigate]);
+    if (!user) { navigate("/admin-login"); return; }
+    // Wait until role is resolved before deciding access
+    if (role === 'unknown' && !roleTimeout) return;
+    setAdminChecked(true);
+    if (!isSuperAdmin) navigate("/admin-login");
+  }, [authLoading, user, role, isSuperAdmin, roleTimeout, navigate]);
 
   const refresh = async () => {
     setLoading(true);
