@@ -27,7 +27,7 @@ const RequireOwner = ({ children, cashierRedirect = '/pos' }: Props) => {
     }
   }, [isLoading, user, role, navigate, cashierRedirect]);
 
-  if (isLoading || !user || role === 'cashier') {
+  if (isLoading || !user || role === 'cashier' || role === 'unknown') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <p className="text-muted-foreground">Loading…</p>

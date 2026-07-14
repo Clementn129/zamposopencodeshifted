@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useBusiness } from '@/hooks/useBusiness';
@@ -34,7 +34,7 @@ const Dashboard = () => {
     }
   }, [user, authLoading, navigate]);
 
-  useEffect(() => {
+  const checkHasSalesToday = useCallback(async () => {
     if (!business?.id) return;
     const today = new Date().toISOString().split('T')[0];
     supabase
@@ -46,6 +46,17 @@ const Dashboard = () => {
       .then(({ count }) => setHasSalesToday((count ?? 0) > 0))
       .catch(() => {});
   }, [business?.id]);
+
+  useEffect(() => {
+    checkHasSalesToday();
+    const handler = () => checkHasSalesToday();
+    window.addEventListener("zampos:sales-changed", handler);
+    window.addEventListener("zampos:sync-complete", handler);
+    return () => {
+      window.removeEventListener("zampos:sales-changed", handler);
+      window.removeEventListener("zampos:sync-complete", handler);
+    };
+  }, [checkHasSalesToday]);
 
   usePushNotifications(
     daysRemaining,

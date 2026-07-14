@@ -34,6 +34,7 @@ export function useSalesSync(businessId: string | undefined) {
     try {
       const unsynced = await getUnsyncedSales(businessId);
       setPendingCount(unsynced.length);
+      let anySynced = false;
 
       for (const sale of unsynced) {
         try {
@@ -64,10 +65,16 @@ export function useSalesSync(businessId: string | undefined) {
 
           await markSaleAsSynced(sale.id);
           setPendingCount((prev) => Math.max(0, prev - 1));
+          anySynced = true;
         } catch (e: any) {
           console.error("Error syncing sale:", e);
           setLastSyncError(e?.message || "Failed to sync sale");
         }
+      }
+
+      // Stamp last_sync_at if any sale was synced
+      if (anySynced && businessId) {
+        supabase.from('businesses').update({ last_sync_at: new Date().toISOString() }).eq('id', businessId).then(() => {}).catch(() => {});
       }
     } catch (e: any) {
       console.error("Error in sync process:", e);

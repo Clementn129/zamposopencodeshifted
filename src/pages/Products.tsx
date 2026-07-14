@@ -53,6 +53,9 @@ import {
   queuePendingOp,
   cacheProducts,
   getCachedProducts,
+  storePendingImageUpload,
+  removePendingImageUpload,
+  cacheProductImageBlob,
 } from "@/lib/offlineStorage";
 
 const NEW_CAT_VALUE = "__new__";
@@ -267,7 +270,12 @@ const Products = () => {
         if (editing) {
           const idx = cached.findIndex((p) => p.id === editing.id);
           if (idx >= 0) {
-            cached[idx] = { ...cached[idx], ...payload as any };
+            cached[idx] = {
+              ...cached[idx],
+              ...payload as any,
+              imageUrl: imageUrl ?? undefined,
+              imagePath: imagePath ?? undefined,
+            };
           }
           await queuePendingOp({
             id: generateOfflineId(),
@@ -290,8 +298,9 @@ const Products = () => {
             category: payload.category,
             isActive: true,
             taxCategory: payload.tax_category || 'taxable',
-            imageUrl: payload.image_url,
-            imagePath: payload.image_url,
+            imageUrl,
+            imagePath,
+            barcode: payload.barcode || null,
             parentId: null,
             variantLabel: null,
           } as any);
@@ -299,7 +308,7 @@ const Products = () => {
             id: generateOfflineId(),
             businessId: business.id,
             type: 'product_create',
-            payload: { ...payload },
+            payload: { ...payload, tempId },
             createdAt: new Date().toISOString(),
           });
           toast({ title: "Created (offline)" });
@@ -434,6 +443,19 @@ const Products = () => {
   const addCategory = async () => {
     if (!pendingNewCategory.trim()) return;
     try {
+      if (!isOnline) {
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: business!.id,
+          type: 'category_create',
+          payload: { name: pendingNewCategory.trim() },
+          createdAt: new Date().toISOString(),
+        });
+        setCategories(prev => [...prev, { id: generateOfflineId(), name: pendingNewCategory.trim(), business_id: business!.id }] as any);
+        setPendingNewCategory("");
+        toast({ title: "Category saved offline" });
+        return;
+      }
       await createCategory(pendingNewCategory);
       setPendingNewCategory("");
       toast({ title: "Category added" });
@@ -448,6 +470,18 @@ const Products = () => {
 
   const deleteCategory = async (id: string) => {
     try {
+      if (!isOnline) {
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: business!.id,
+          type: 'category_delete',
+          payload: { id },
+          createdAt: new Date().toISOString(),
+        });
+        setCategories(prev => prev.filter((c: any) => c.id !== id));
+        toast({ title: "Category deleted offline" });
+        return;
+      }
       const { error } = await supabase.from("product_categories").delete().eq("id", id);
       if (error) throw error;
       await refetchCategories();
@@ -1006,10 +1040,27 @@ const Products = () => {
                     setImageUrl(signed);
                   }}
                   onCleared={() => {
+                    if (imagePath?.startsWith('pending:')) {
+                      const id = imagePath.replace('pending:', '');
+                      removePendingImageUpload(id).catch(() => {});
+                    }
                     setImagePath(null);
                     setImageUrl(null);
                   }}
-                  disabled={!isOnline}
+                  customUpload={!isOnline ? async (file) => {
+                    const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    const blob = new Blob([file], { type: file.type });
+                    await storePendingImageUpload({
+                      id: uploadId,
+                      blob,
+                      mimeType: file.type,
+                      businessId: business.id,
+                      originalName: file.name,
+                    });
+                    await cacheProductImageBlob(`pending:${uploadId}`, blob);
+                    const blobUrl = URL.createObjectURL(blob);
+                    return { path: `pending:${uploadId}`, signedUrl: blobUrl };
+                  } : undefined}
                 />
               </div>
             )}
@@ -1160,7 +1211,7 @@ const Products = () => {
                   }
                 }}
               />
-              <Button variant="outline" onClick={addCategory} disabled={!isOnline}>
+              <Button variant="outline" onClick={addCategory}>
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
@@ -1179,7 +1230,6 @@ const Products = () => {
                       variant="ghost"
                       size="icon"
                       onClick={() => deleteCategory(c.id)}
-                      disabled={!isOnline}
                       aria-label={`Delete ${c.name}`}
                     >
                       <X className="h-4 w-4 text-destructive" />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Calendar, Download, Edit, Receipt, TrendingUp, Trash2, RotateCcw, Check, Clock, DollarSign, Tag, Wallet, Eye } from "lucide-react";
 import { format, startOfDay, startOfWeek, startOfMonth, endOfMonth, getMonth, getYear, setMonth, setYear } from "date-fns";
@@ -19,7 +19,7 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { useBusiness } from "@/hooks/useBusiness";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { supabase } from "@/integrations/supabase/client";
-import { getUnsyncedSales, cacheSalesHistory, getCachedSalesHistory, cacheExpenses, getCachedExpenses, cacheDebtorPayments, getCachedDebtorPayments, markSaleAsSynced } from "@/lib/offlineStorage";
+import { getUnsyncedSales, cacheSalesHistory, getCachedSalesHistory, cacheExpenses, getCachedExpenses, cacheDebtorPayments, getCachedDebtorPayments, markSaleAsSynced, generateOfflineId, queuePendingOp } from "@/lib/offlineStorage";
 import { exportSalesToCsv } from "@/lib/csvExport";
 import { useToast } from "@/hooks/use-toast";
 
@@ -300,7 +300,7 @@ const SalesHistory = () => {
           items: s.items,
           subtotal: s.subtotal,
           total: s.total,
-          discountAmount: 0,
+          discountAmount: s.discountAmount ?? 0,
           paymentMethod: s.paymentMethod,
           createdAt: s.createdAt,
           synced: false,
@@ -320,9 +320,12 @@ const SalesHistory = () => {
   }, [business?.id, isOnline, period, activeTab, selectedMonth, selectedYear]);
 
   // Refresh after offline sales finish syncing or after realtime sale / payment changes
+  const fetchDataRef = useRef(fetchData);
+  fetchDataRef.current = fetchData;
+
   useEffect(() => {
     const handler = () => {
-      if (business?.id) void fetchData();
+      if (business?.id) void fetchDataRef.current();
     };
     window.addEventListener("zampos:sync-complete", handler);
     window.addEventListener("zampos:sales-changed", handler);
@@ -567,15 +570,23 @@ const SalesHistory = () => {
   }, [filteredSales, filteredExpenses]);
 
   const handleDeleteSale = async (sale: Sale) => {
-    if (!isOnline) {
-      toast({ variant: "destructive", title: "Offline", description: "Connect to internet to delete sales." });
-      return;
-    }
-
     if (!confirm("Delete this sale? This will reverse the stock changes. Use this only for entry mistakes.")) return;
 
     setDeleting(sale.id);
     try {
+      if (!isOnline) {
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: business.id,
+          type: 'sale_delete',
+          payload: { saleId: sale.id, items: sale.items },
+          createdAt: new Date().toISOString(),
+        });
+        toast({ title: "Sale deletion queued", description: "Sale will be deleted and stock restored when online." });
+        setDeleting(null);
+        return;
+      }
+
       // Return stock to products (batched, avoids N+1)
       const productIds = [...new Set(sale.items.map((i: any) => i.productId).filter(Boolean))];
       if (productIds.length > 0) {
@@ -995,6 +1006,22 @@ const SalesHistory = () => {
                 </Card>
               </div>
 
+              {/* Payment method breakdown (quick view) */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">By Payment Method</CardTitle>
+                  <CardDescription>For the selected period</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div><p className="text-xs text-muted-foreground">Cash</p><p className="font-bold">{stats.cashSales} sales</p></div>
+                    <div><p className="text-xs text-muted-foreground">Mobile Money</p><p className="font-bold">{stats.mobileSales} sales</p></div>
+                    <div><p className="text-xs text-muted-foreground">Other</p><p className="font-bold">{stats.totalSales - stats.cashSales - stats.mobileSales} sales</p></div>
+                    <div><p className="text-xs text-muted-foreground">Total Revenue</p><p className="font-bold">ZMW {stats.totalRevenue.toFixed(2)}</p></div>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Tax Summary (quick view) */}
               {(stats.taxCollected > 0 || stats.taxableSales > 0 || stats.zeroRatedSales > 0 || stats.exemptSales > 0) && (
                 <Card>
@@ -1144,6 +1171,21 @@ const SalesHistory = () => {
                   </Card>
                 )}
               </div>
+
+              {/* Monthly Payment Method Breakdown */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">By Payment Method — {MONTHS[selectedMonth]} {selectedYear}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div><p className="text-xs text-muted-foreground">Cash</p><p className="font-bold">{monthlyFilteredSales.filter(s => s.paymentMethod === 'cash').length} sales</p></div>
+                    <div><p className="text-xs text-muted-foreground">Mobile Money</p><p className="font-bold">{monthlyFilteredSales.filter(s => s.paymentMethod === 'mobile_money').length} sales</p></div>
+                    <div><p className="text-xs text-muted-foreground">Other</p><p className="font-bold">{monthlyFilteredSales.filter(s => s.paymentMethod !== 'cash' && s.paymentMethod !== 'mobile_money').length} sales</p></div>
+                    <div><p className="text-xs text-muted-foreground">Total Revenue</p><p className="font-bold">ZMW {monthlyStats.totalRevenue.toFixed(2)}</p></div>
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Monthly Tax Summary */}
               {(monthlyStats.taxCollected > 0 || monthlyStats.taxableSales > 0 || monthlyStats.zeroRatedSales > 0 || monthlyStats.exemptSales > 0) && (

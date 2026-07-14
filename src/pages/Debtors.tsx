@@ -517,6 +517,19 @@ const Debtors = () => {
     if (!confirm("Delete this debtor record? If there was a linked sale, stock will be restored.")) return;
 
     try {
+      if (!isOnline) {
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: businessId!,
+          type: 'debtor_delete',
+          payload: { id: debtor.id },
+          createdAt: new Date().toISOString(),
+        });
+        setDebtors(prev => prev.filter(d => d.id !== debtor.id));
+        toast({ title: 'Deletion queued', description: 'Debtor will be deleted and stock restored when online.' });
+        return;
+      }
+
       // Find if there's a linked sale to restore stock
       const { data: debtorData } = await supabase
         .from('debtors')
@@ -837,7 +850,6 @@ const Debtors = () => {
                             variant="ghost" 
                             size="sm" 
                             onClick={() => handleDeleteDebtor(debtor)} 
-                            disabled={!isOnline}
                             className="text-destructive hover:text-destructive"
                           >
                             <Trash2 className="h-4 w-4" />

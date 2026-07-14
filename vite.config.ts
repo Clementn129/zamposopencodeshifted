@@ -88,6 +88,25 @@ export default defineConfig(({ mode }) => ({
               },
             },
           },
+          {
+            // Cache Supabase REST API GET responses so read-only data
+            // (products, sales, debtors, etc.) works offline.
+            // NetworkFirst with a short timeout — fresh data when online,
+            // falls back to cache on slow/flaky networks or offline.
+            urlPattern: /^https:\/\/gglhrfogvwnrgyvlixjq\.supabase\.co\/rest\/v1\/.*/i,
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "supabase-api-cache",
+              networkTimeoutSeconds: 5,
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
         ],
       },
     }),

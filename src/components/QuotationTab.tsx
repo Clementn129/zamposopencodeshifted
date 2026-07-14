@@ -92,16 +92,25 @@ const QuotationTab = ({ businessId, businessName, businessDetails, products, isS
           quantity: i.quantity,
           discountType: i.discountType,
           discountValue: i.discountValue,
+          notes: i.notes,
+          costPrice: i.costPrice,
+          taxCategory: i.taxCategory,
+          unitPrice: i.unitPrice,
+          lineTotal: i.lineTotal,
         })),
         q.discountType,
         q.discountValue
       );
-      // Mark quotation as converted (we don't have the sale ID yet, pass empty)
-      await markConverted(convertId, '');
+      // Mark quotation as converted with null (not empty string to avoid invalid UUID error)
+      await markConverted(convertId, null);
       toast({ title: 'Quotation loaded into cart', description: 'Complete the sale to deduct stock.' });
       setConvertId(null);
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Error', description: e.message });
+      if (e.message.includes('quota') || e.message.includes('storage')) {
+        toast({ variant: 'destructive', title: 'Image Upload Error', description: 'Image upload quota exceeded. Try reducing image sizes or count.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: e.message });
+      }
     }
   };
 

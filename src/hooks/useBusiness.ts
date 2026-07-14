@@ -201,8 +201,9 @@ export const useBusiness = (userId: string | undefined) => {
       setBusiness(mapBusinessRow(row));
       await persistBusinessCache(row);
 
-      // Note: do NOT update last_sync_at here — it triggers the realtime
-      // subscription below and causes an infinite refetch loop.
+      // Fire-and-forget: stamp last_sync_at for admin dashboard visibility.
+      // The realtime subscription below ignores this column, so no loop.
+      supabase.from('businesses').update({ last_sync_at: new Date().toISOString() }).eq('id', data.id).then(() => {}).catch(() => {});
     } catch (err: unknown) {
       console.error('Error fetching business:', err);
       const msg = err instanceof Error ? err.message : 'Failed to load business data';

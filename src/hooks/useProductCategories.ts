@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { generateOfflineId, queuePendingOp } from "@/lib/offlineStorage";
 
 export type ProductCategory = {
   id: string;
@@ -50,6 +51,17 @@ export function useProductCategories(businessId: string | undefined) {
         (c) => c.name.toLowerCase() === trimmed.toLowerCase()
       );
       if (existing) return existing.name;
+
+      if (!navigator.onLine) {
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId,
+          type: 'category_create',
+          payload: { name: trimmed },
+          createdAt: new Date().toISOString(),
+        });
+        return trimmed;
+      }
 
       const { error } = await supabase
         .from("product_categories")

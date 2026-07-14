@@ -32,7 +32,7 @@ export function lusakaWeekRange(reference: Date = new Date()) {
   const ref = new Date(Date.UTC(y, m, d));
   const dow = (ref.getUTCDay() + 6) % 7; // Mon=0..Sun=6
   const from = lusakaMidnightUTC(y, m, d - dow);
-  const to = new Date(lusakaMidnightUTC(y, m, d + 1).getTime() - 1);
+  const to = new Date(lusakaMidnightUTC(y, m, d + (7 - dow)).getTime() - 1);
   return { from, to };
 }
 

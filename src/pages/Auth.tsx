@@ -56,7 +56,7 @@ const Auth = () => {
 
   // Redirect if already logged in
   useEffect(() => {
-    if (!user) return;
+    if (!user || role === 'unknown') return;
     if (role === 'cashier') navigate('/pos');
     else navigate('/dashboard');
   }, [user, role, navigate]);

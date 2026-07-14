@@ -15,6 +15,8 @@ type Props = {
   /** Called when the user removes the image */
   onCleared: () => void;
   disabled?: boolean;
+  /** When provided, used instead of the default Supabase upload (e.g. offline mode) */
+  customUpload?: (file: File, currentPath: string | null) => Promise<{ path: string; signedUrl: string | null }>;
 };
 
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -26,6 +28,7 @@ const ProductImageUpload = ({
   onUploaded,
   onCleared,
   disabled,
+  customUpload,
 }: Props) => {
   const { toast } = useToast();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -51,32 +54,36 @@ const ProductImageUpload = ({
 
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop() || "jpg";
-      const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
+      if (customUpload) {
+        const result = await customUpload(file, currentPath);
+        onUploaded(result.path, result.signedUrl);
+      } else {
+        const ext = file.name.split(".").pop() || "jpg";
+        const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
 
-      const { error: upErr } = await supabase.storage
-        .from("product-images")
-        .upload(path, file, { cacheControl: "3600", upsert: false });
-      if (upErr) throw upErr;
+        const { error: upErr } = await supabase.storage
+          .from("product-images")
+          .upload(path, file, { cacheControl: "3600", upsert: false });
+        if (upErr) throw upErr;
 
-      // Best-effort: delete the previous file
-      if (currentPath) {
-        await supabase.storage.from("product-images").remove([currentPath]);
+        // Best-effort: delete the previous file
+        if (currentPath) {
+          await supabase.storage.from("product-images").remove([currentPath]);
+        }
+
+        // Long-lived signed URL (~1 year). Workspace blocks public buckets, so this
+        // is the longest-lived option without exposing the bucket.
+        const { data: signed } = await supabase.storage
+          .from("product-images")
+          .createSignedUrl(path, 60 * 60 * 24 * 365);
+
+        onUploaded(path, signed?.signedUrl ?? null);
       }
-
-      // Long-lived signed URL (~1 year). Workspace blocks public buckets, so this
-      // is the longest-lived option without exposing the bucket.
-      const { data: signed } = await supabase.storage
-        .from("product-images")
-        .createSignedUrl(path, 60 * 60 * 24 * 365);
-
-
-      onUploaded(path, signed?.signedUrl ?? null);
-      toast({ title: "Image uploaded" });
+      toast({ title: customUpload ? "Image added (offline)" : "Image uploaded" });
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "Upload failed",
+        title: customUpload ? "Failed to add image" : "Upload failed",
         description: e instanceof Error ? e.message : "Try again.",
       });
     } finally {
@@ -86,10 +93,14 @@ const ProductImageUpload = ({
   };
 
   const handleClear = async () => {
-    if (currentPath) {
-      await supabase.storage.from("product-images").remove([currentPath]).catch(() => {});
+    if (customUpload) {
+      onCleared();
+    } else {
+      if (currentPath) {
+        await supabase.storage.from("product-images").remove([currentPath]).catch(() => {});
+      }
+      onCleared();
     }
-    onCleared();
   };
 
   return (

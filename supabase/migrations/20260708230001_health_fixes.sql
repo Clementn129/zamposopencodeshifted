@@ -18,7 +18,7 @@ GRANT EXECUTE ON FUNCTION public.reject_stock_adjustment(uuid, text) TO authenti
 
 -- 2b. GRANT EXECUTE on RPCs called directly from frontend (SECURITY DEFINER)
 GRANT EXECUTE ON FUNCTION public.record_sale_payment(uuid, numeric, text, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.sync_offline_sale(uuid, text, jsonb, numeric, numeric, numeric, text, text, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.sync_offline_sale(uuid, text, jsonb, numeric, numeric, numeric, text, text, timestamp with time zone, numeric, numeric, numeric, numeric, text, text, numeric, date, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.generate_affiliate_code() TO authenticated;
 
 -- 3. Add foreign key constraints to business_cashiers

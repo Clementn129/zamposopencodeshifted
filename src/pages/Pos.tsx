@@ -150,7 +150,7 @@ const Pos = () => {
     return received - total;
   }, [amountReceived, total]);
 
-  const addToCart = async (productId: string) => {
+const addToCart = async (productId: string) => {
     const p = activeProducts.find((x) => x.id === productId);
     if (!p) return;
     const displayName = p.variantLabel ? `${p.name} · ${p.variantLabel}` : p.name;
@@ -164,7 +164,17 @@ const Pos = () => {
       ? cart.map((l) => (l.productId === productId ? { ...l, quantity: nextQty } : l))
       : [...cart, { productId, name: displayName, price: p.price ?? 0, quantity: 1, costPrice: p.costPrice, taxCategory: p.taxCategory }];
     setCart(next);
-    await saveCartItem({ productId, name: displayName, price: p.price ?? 0, quantity: nextQty });
+    await saveCartItem({
+      productId,
+      name: displayName,
+      price: p.price ?? 0,
+      quantity: nextQty,
+      costPrice: p.costPrice,
+      discountType: existing?.discountType || null,
+      discountValue: existing?.discountValue || 0,
+      notes: existing?.notes || "",
+      taxCategory: p.taxCategory
+    });
   };
 
   // Barcode scanner support — works with any USB/Bluetooth keyboard-wedge
@@ -196,24 +206,25 @@ const Pos = () => {
       return;
     }
     const nextQty = existing.quantity - 1;
-    setCart(cart.map((l) => (l.productId === productId ? { ...l, quantity: nextQty } : l)));
-    await saveCartItem({ ...existing, quantity: nextQty });
+    const updated = { ...existing, quantity: nextQty };
+    setCart(cart.map((l) => (l.productId === productId ? updated : l)));
+    await saveCartItem(updated);
   };
 
-  const updateItemDiscount = (productId: string, type: 'percentage' | 'amount' | null, value: number) => {
-    setCart(prevCart => prevCart.map((l) => 
-      l.productId === productId 
-        ? { ...l, discountType: type, discountValue: value }
-        : l
-    ));
+  const updateItemDiscount = async (productId: string, type: 'percentage' | 'amount' | null, value: number) => {
+    const existing = cart.find((l) => l.productId === productId);
+    if (!existing) return;
+    const updated = { ...existing, discountType: type, discountValue: value };
+    setCart(cart.map((l) => (l.productId === productId ? updated : l)));
+    await saveCartItem(updated);
   };
 
-  const updateItemNotes = (productId: string, notes: string) => {
-    setCart(prevCart => prevCart.map((l) =>
-      l.productId === productId
-        ? { ...l, notes }
-        : l
-    ));
+  const updateItemNotes = async (productId: string, notes: string) => {
+    const existing = cart.find((l) => l.productId === productId);
+    if (!existing) return;
+    const updated = { ...existing, notes };
+    setCart(cart.map((l) => (l.productId === productId ? updated : l)));
+    await saveCartItem(updated);
   };
 
   const clear = async () => { 

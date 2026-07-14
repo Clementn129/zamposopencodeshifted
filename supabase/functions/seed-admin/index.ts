@@ -8,8 +8,17 @@ const corsHeaders = {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const email = "mwilalclement129@gmail.com";
-  const password = "Jokermind12@";
+  // Get admin credentials from request body or environment variables
+  const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+  const email = body.email || Deno.env.get("SEED_ADMIN_EMAIL");
+  const password = body.password || Deno.env.get("SEED_ADMIN_PASSWORD");
+
+  if (!email || !password) {
+    return new Response(
+      JSON.stringify({ error: "Email and password are required. Provide them in request body or set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD environment variables." }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,

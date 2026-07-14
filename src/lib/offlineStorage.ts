@@ -1,7 +1,7 @@
 // Offline storage utilities using IndexedDB and localStorage
 
 const DB_NAME = 'zampos_db';
-const DB_VERSION = 9; // Increment when schema changes; must always be > any previously deployed version
+const DB_VERSION = 10; // Increment when schema changes; must always be > any previously deployed version
 
 // Detect browser's existing DB version to handle downgrade
 const getExistingVersion = (): Promise<number> => {
@@ -102,7 +102,10 @@ interface CachedBusiness {
 
 let dbInstance: IDBDatabase | null = null;
 
-// Initialize IndexedDB
+// Maximum number of retries for database operations
+const MAX_DB_RETRIES = 3;
+
+// Initialize IndexedDB with safe version handling
 export const initDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
     // Return cached instance if available
@@ -112,16 +115,104 @@ export const initDB = (): Promise<IDBDatabase> => {
     }
 
     tryCreate(DB_VERSION).then(resolve).catch((err) => {
-      // If version conflict, delete old DB and retry from scratch
       const msg = String(err?.message || err || '');
       if (/less than the existing|version.*lower/i.test(msg)) {
-        const deleteReq = indexedDB.deleteDatabase(DB_NAME);
-        deleteReq.onsuccess = () => tryCreate(DB_VERSION).then(resolve).catch(reject);
-        deleteReq.onerror = () => reject(deleteReq.error);
+        // Instead of deleting the entire database (which destroys user data),
+        // try to open with the existing version and add missing stores
+        console.warn('Database version mismatch. Attempting safe migration...');
+        openExistingAndMigrate().then(resolve).catch(reject);
       } else {
         reject(err);
       }
     });
+  });
+};
+
+// Safely open existing database and add any missing object stores
+const openExistingAndMigrate = async (): Promise<IDBDatabase> => {
+  // First, detect the existing version
+  const existingVersion = await getExistingVersion();
+  if (existingVersion === 0) {
+    // Database doesn't exist, create fresh
+    return tryCreate(DB_VERSION);
+  }
+  
+  // Try to open with the higher of existing or current version
+  const targetVersion = Math.max(existingVersion, DB_VERSION);
+  
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, targetVersion);
+    
+    request.onerror = () => {
+      // If still failing, try opening without version upgrade
+      const fallbackReq = indexedDB.open(DB_NAME);
+      fallbackReq.onsuccess = () => {
+        dbInstance = fallbackReq.result;
+        resolve(fallbackReq.result);
+      };
+      fallbackReq.onerror = () => reject(fallbackReq.error);
+    };
+    
+    request.onsuccess = () => {
+      dbInstance = request.result;
+      resolve(request.result);
+    };
+    
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      // Add any missing stores without deleting existing data
+      if (!db.objectStoreNames.contains('sales')) {
+        const salesStore = db.createObjectStore('sales', { keyPath: 'id' });
+        salesStore.createIndex('synced', 'synced', { unique: false });
+        salesStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('products')) {
+        const productsStore = db.createObjectStore('products', { keyPath: 'id' });
+        productsStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('cart')) {
+        db.createObjectStore('cart', { keyPath: 'productId' });
+      }
+      if (!db.objectStoreNames.contains('stockUpdates')) {
+        const stockStore = db.createObjectStore('stockUpdates', { keyPath: 'id' });
+        stockStore.createIndex('synced', 'synced', { unique: false });
+        stockStore.createIndex('businessId', 'businessId', { unique: false });
+        stockStore.createIndex('productId', 'productId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('business')) {
+        db.createObjectStore('business', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('debtors')) {
+        const debtorsStore = db.createObjectStore('debtors', { keyPath: 'id' });
+        debtorsStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('offline_users')) {
+        db.createObjectStore('offline_users', { keyPath: 'email' });
+      }
+      if (!db.objectStoreNames.contains('salesCache')) {
+        const salesCacheStore = db.createObjectStore('salesCache', { keyPath: 'id' });
+        salesCacheStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('expensesCache')) {
+        const expensesCacheStore = db.createObjectStore('expensesCache', { keyPath: 'id' });
+        expensesCacheStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('debtorPaymentsCache')) {
+        const debtorPaymentsCacheStore = db.createObjectStore('debtorPaymentsCache', { keyPath: 'id' });
+        debtorPaymentsCacheStore.createIndex('businessId', 'businessId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('pendingOps')) {
+        const pendingOpsStore = db.createObjectStore('pendingOps', { keyPath: 'id' });
+        pendingOpsStore.createIndex('businessId', 'businessId', { unique: false });
+        pendingOpsStore.createIndex('type', 'type', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('productImageBlobs')) {
+        db.createObjectStore('productImageBlobs', { keyPath: 'path' });
+      }
+      if (!db.objectStoreNames.contains('pendingImageUploads')) {
+        db.createObjectStore('pendingImageUploads', { keyPath: 'id' });
+      }
+    };
   });
 };
 
@@ -192,6 +283,14 @@ const tryCreate = (version: number): Promise<IDBDatabase> => {
         const pendingOpsStore = db.createObjectStore('pendingOps', { keyPath: 'id' });
         pendingOpsStore.createIndex('businessId', 'businessId', { unique: false });
         pendingOpsStore.createIndex('type', 'type', { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains('productImageBlobs')) {
+        db.createObjectStore('productImageBlobs', { keyPath: 'path' });
+      }
+
+      if (!db.objectStoreNames.contains('pendingImageUploads')) {
+        db.createObjectStore('pendingImageUploads', { keyPath: 'id' });
       }
     };
   });
@@ -362,6 +461,11 @@ interface CartItem {
   name: string;
   price: number;
   quantity: number;
+  costPrice?: number | null;
+  discountType?: 'percentage' | 'amount' | null;
+  discountValue?: number;
+  notes?: string;
+  taxCategory?: 'taxable' | 'zero_rated' | 'exempt';
 }
 
 export const saveCartItem = async (item: CartItem): Promise<void> => {
@@ -786,9 +890,19 @@ export const getCachedDebtorPayments = async (businessId: string): Promise<Cache
 interface PendingOp {
   id: string;
   businessId: string;
-  type: 'product_create' | 'product_update' | 'product_deactivate' | 'debtor_create' | 'debtor_payment';
+  type: 'product_create' | 'product_update' | 'product_deactivate'
+    | 'debtor_create' | 'debtor_payment'
+    | 'expense_create' | 'expense_delete'
+    | 'category_create' | 'category_delete'
+    | 'settings_update'
+    | 'sale_delete'
+    | 'debtor_delete'
+    | 'quotation_create' | 'quotation_update' | 'quotation_delete';
   payload: any;
   createdAt: string;
+  retryCount?: number;
+  lastError?: string;
+  permanentlyFailed?: boolean;
 }
 
 export const queuePendingOp = async (op: PendingOp): Promise<void> => {
@@ -828,16 +942,52 @@ export const removePendingOp = async (opId: string): Promise<void> => {
   });
 };
 
+export const updatePendingOpRetry = async (opId: string, retryCount: number, lastError: string): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['pendingOps'], 'readwrite');
+    const store = transaction.objectStore('pendingOps');
+    const getRequest = store.get(opId);
+    
+    getRequest.onsuccess = () => {
+      const op = getRequest.result;
+      if (op) {
+        op.retryCount = retryCount;
+        op.lastError = lastError;
+        if (retryCount >= MAX_RETRIES) {
+          op.permanentlyFailed = true;
+        }
+        const putRequest = store.put(op);
+        putRequest.onsuccess = () => resolve();
+        putRequest.onerror = () => reject(putRequest.error);
+      } else {
+        resolve();
+      }
+    };
+    getRequest.onerror = () => reject(getRequest.error);
+  });
+};
+
 export const processPendingOps = async (businessId: string): Promise<void> => {
   const ops = await getPendingOps(businessId);
   for (const op of ops) {
     try {
       switch (op.type) {
         case 'product_create':
+          // Product create ops are handled by usePendingOpsSync which syncs to Supabase
+          // Mark as processed so they don't accumulate
+          break;
         case 'product_update':
+          // Product update ops are handled by usePendingOpsSync which syncs to Supabase
+          break;
         case 'product_deactivate':
+          // Product deactivate ops are handled by usePendingOpsSync which syncs to Supabase
+          break;
         case 'debtor_create':
+          // Debtor create ops are handled by usePendingOpsSync which syncs to Supabase
+          break;
         case 'debtor_payment':
+          // Debtor payment ops are handled by usePendingOpsSync which syncs to Supabase
           break;
       }
       await removePendingOp(op.id);
@@ -845,6 +995,82 @@ export const processPendingOps = async (businessId: string): Promise<void> => {
       console.error(`Failed to process pending op ${op.id}:`, e);
     }
   }
+};
+
+// Product image blob cache (download image bytes for offline viewing)
+export const cacheProductImageBlob = async (path: string, blob: Blob): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['productImageBlobs'], 'readwrite');
+    const store = transaction.objectStore('productImageBlobs');
+    store.put({ path, blob, cachedAt: new Date().toISOString() });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+export const getCachedImageBlob = async (path: string): Promise<Blob | null> => {
+  const db = await getDB();
+  return new Promise((resolve) => {
+    const transaction = db.transaction(['productImageBlobs'], 'readonly');
+    const store = transaction.objectStore('productImageBlobs');
+    const request = store.get(path);
+    request.onsuccess = () => resolve(request.result?.blob ?? null);
+    request.onerror = () => resolve(null);
+  });
+};
+
+export const removeCachedImageBlob = async (path: string): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['productImageBlobs'], 'readwrite');
+    const store = transaction.objectStore('productImageBlobs');
+    store.delete(path);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+// Pending image uploads (blobs selected offline, uploaded when online)
+interface PendingImageUpload {
+  id: string;
+  blob: Blob;
+  mimeType: string;
+  businessId: string;
+  originalName: string;
+}
+
+export const storePendingImageUpload = async (upload: PendingImageUpload): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['pendingImageUploads'], 'readwrite');
+    const store = transaction.objectStore('pendingImageUploads');
+    const request = store.add(upload);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const getPendingImageUpload = async (id: string): Promise<PendingImageUpload | null> => {
+  const db = await getDB();
+  return new Promise((resolve) => {
+    const transaction = db.transaction(['pendingImageUploads'], 'readonly');
+    const store = transaction.objectStore('pendingImageUploads');
+    const request = store.get(id);
+    request.onsuccess = () => resolve(request.result ?? null);
+    request.onerror = () => resolve(null);
+  });
+};
+
+export const removePendingImageUpload = async (id: string): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['pendingImageUploads'], 'readwrite');
+    const store = transaction.objectStore('pendingImageUploads');
+    store.delete(id);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
 };
 
 // Initialize DB on module load to ensure stores exist

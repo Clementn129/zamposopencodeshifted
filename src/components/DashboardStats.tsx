@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { formatZMW } from '@/lib/currency';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { getCachedSalesHistory, getCachedExpenses, getCachedDebtors, getCachedProducts } from '@/lib/offlineStorage';
 import {
   TrendingUp,
   ShoppingCart,
@@ -26,6 +28,7 @@ interface Stats {
 }
 
 const DashboardStats = ({ businessId, isService }: DashboardStatsProps) => {
+  const { isOnline } = useOnlineStatus();
   const [stats, setStats] = useState<Stats>({
     todayRevenue: 0,
     todaySalesCount: 0,
@@ -39,6 +42,54 @@ const DashboardStats = ({ businessId, isService }: DashboardStatsProps) => {
   const fetchStats = useCallback(async () => {
     if (!businessId) return;
     const today = new Date().toISOString().split('T')[0];
+
+    if (!isOnline) {
+      const [cachedSales, cachedExpenses, cachedDebtors, cachedProducts] = await Promise.all([
+        getCachedSalesHistory(businessId),
+        getCachedExpenses(businessId),
+        getCachedDebtors(businessId),
+        isService ? Promise.resolve([]) : getCachedProducts(businessId),
+      ]);
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+
+      const todaysSales = cachedSales.filter(s => {
+        const t = new Date(s.createdAt).getTime();
+        return t >= todayStart.getTime() && t <= todayEnd.getTime();
+      });
+
+      const todaysExpenses = cachedExpenses.filter(e => {
+        const t = new Date(e.expense_date).getTime();
+        return t >= todayStart.getTime() && t <= todayEnd.getTime();
+      });
+
+      const businessExpensesToday = todaysExpenses
+        .filter((e) => e.category === 'business')
+        .reduce((sum, e) => sum + e.amount, 0);
+      const ownerDrawingsToday = todaysExpenses
+        .filter((e) => e.category === 'personal')
+        .reduce((sum, e) => sum + e.amount, 0);
+
+      const lowStockCount = isService ? 0 : (cachedProducts as any[])
+        .filter((p: any) => (p.itemType ?? 'product') !== 'service' && Number(p.stock) <= Number(p.minimumStock))
+        .length;
+
+      setStats({
+        todayRevenue: todaysSales.reduce((sum, s) => sum + Number(s.total), 0),
+        todaySalesCount: todaysSales.length,
+        outstandingDebts: cachedDebtors
+          .filter((d) => d.status !== 'paid')
+          .reduce((sum, d) => sum + (d.amountOwed - d.amountPaid), 0),
+        lowStockCount,
+        businessExpensesToday,
+        ownerDrawingsToday,
+      });
+      setLoading(false);
+      return;
+    }
 
     const [salesRes, debtorsRes, expensesRes, productsRes] = await Promise.all([
       supabase
@@ -101,7 +152,7 @@ const DashboardStats = ({ businessId, isService }: DashboardStatsProps) => {
       ownerDrawingsToday,
     });
     setLoading(false);
-  }, [businessId, isService]);
+  }, [businessId, isService, isOnline]);
 
   useEffect(() => {
     void fetchStats();

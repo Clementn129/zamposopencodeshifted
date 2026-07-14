@@ -31,12 +31,12 @@ const LowStockAlert = ({ businessId }: LowStockAlertProps) => {
 
       if (!error && data) {
         const lowStock = data
-          .filter((p: any) => (p.item_type ?? 'product') !== 'service' && Number(p.stock) <= Number(p.minimum_stock || 5))
+          .filter((p: any) => (p.item_type ?? 'product') !== 'service' && Number(p.stock) <= Number(p.minimum_stock ?? 5))
           .map((p: any) => ({
             id: p.id,
             name: p.name,
             stock: Number(p.stock),
-            minimumStock: Number(p.minimum_stock || 5),
+            minimumStock: Number(p.minimum_stock ?? 5),
           }));
         setLowStockProducts(lowStock);
       }

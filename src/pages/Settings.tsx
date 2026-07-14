@@ -14,6 +14,8 @@ import { useBusiness } from '@/hooks/useBusiness';
 import { useBusinessType, BusinessType } from '@/hooks/useBusinessType';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { generateOfflineId, queuePendingOp } from '@/lib/offlineStorage';
 import CashiersManager from '@/components/CashiersManager';
 
 const RECEIPT_SIZE_KEY = 'zampos.receiptSize';
@@ -22,6 +24,7 @@ type ReceiptSizeSetting = '58mm' | '80mm' | 'a4';
 const Settings = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { isOnline } = useOnlineStatus();
   const { user, isLoading: authLoading } = useAuthContext();
   const { business, isLoading: bizLoading, refetch, checkSubscriptionStatus } = useBusiness(user?.id);
   const { businessType, setBusinessType, isService } = useBusinessType(business?.id);
@@ -157,21 +160,35 @@ const Settings = () => {
 
     setSaving(true);
     try {
+      const updates = {
+        name: businessName.trim(),
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        address: address.trim() || null,
+        tpin: trimmedTpin || null,
+        tax_mode: taxMode,
+        vat_number: taxMode === 'vat' ? (vatNumber.trim() || null) : null,
+        vat_rate: taxMode === 'vat' ? vatRateNum : 16,
+        custom_tax_name: taxMode === 'custom' ? (customTaxName.trim() || 'Tax') : null,
+        custom_tax_rate: taxMode === 'custom' ? customRateNum : null,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!isOnline) {
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId: business.id,
+          type: 'settings_update',
+          payload: { updates },
+          createdAt: new Date().toISOString(),
+        });
+        toast({ title: 'Settings Saved Offline', description: 'Changes will sync when connected.' });
+        return;
+      }
+
       const { error } = await supabase
         .from('businesses')
-        .update({
-          name: businessName.trim(),
-          phone: phone.trim() || null,
-          email: email.trim() || null,
-          address: address.trim() || null,
-          tpin: trimmedTpin || null,
-          tax_mode: taxMode,
-          vat_number: taxMode === 'vat' ? (vatNumber.trim() || null) : null,
-          vat_rate: taxMode === 'vat' ? vatRateNum : 16,
-          custom_tax_name: taxMode === 'custom' ? (customTaxName.trim() || 'Tax') : null,
-          custom_tax_rate: taxMode === 'custom' ? customRateNum : null,
-          updated_at: new Date().toISOString(),
-        } as any)
+        .update(updates as any)
         .eq('id', business.id);
 
       if (error) throw error;

@@ -79,7 +79,7 @@ export function calculateTax(
   let taxAmount = 0;
 
   for (const l of lines) {
-    const amt = Number(l.lineAmount) || 0;
+    const amt = Math.max(0, Number(l.lineAmount) || 0);
     switch (l.taxCategory) {
       case 'zero_rated':
         zeroRatedAmount += amt;

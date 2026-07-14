@@ -102,7 +102,7 @@ const AffiliateAuth = () => {
 
     try {
       // Sign up the user (they get a business_owner role + business by default from the trigger)
-      const { error } = await signUp(email, password, fullName.trim(), 'Affiliate Account');
+      const { data, error } = await signUp(email, password, fullName.trim(), 'Affiliate Account');
 
       if (error) {
         let message = error.message;

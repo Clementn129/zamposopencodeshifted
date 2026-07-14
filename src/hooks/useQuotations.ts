@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { generateOfflineId, queuePendingOp } from '@/lib/offlineStorage';
 
 export interface QuotationItem {
   id?: string;
@@ -72,6 +74,7 @@ const mapItemRow = (row: any): QuotationItem => ({
 });
 
 export function useQuotations(businessId: string | undefined) {
+  const { isOnline } = useOnlineStatus();
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
@@ -82,7 +85,7 @@ export function useQuotations(businessId: string | undefined) {
     try {
       const { data, error } = await supabase
         .from('quotations')
-        .select('id, business_id, quotation_number, customer_name, customer_phone, customer_email, subtotal, discount_type, discount_value, discount_amount, total, status, notes, expiry_date, converted_sale_id, created_at, updated_at, deleted_at')
+        .select('id, business_id, quotation_number, customer_name, customer_phone, customer_email, customer_tpin, subtotal, discount_type, discount_value, discount_amount, tax_amount, total, status, notes, expiry_date, converted_sale_id, created_at, updated_at, deleted_at')
         .eq('business_id', businessId)
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
@@ -129,6 +132,44 @@ export function useQuotations(businessId: string | undefined) {
     items: QuotationItem[]
   ) => {
     if (!businessId) return null;
+
+    if (!isOnline) {
+      const opId = generateOfflineId();
+      await queuePendingOp({
+        id: opId,
+        businessId,
+        type: 'quotation_create',
+        payload: {
+          header: {
+            customer_name: q.customerName,
+            customer_phone: q.customerPhone,
+            customer_email: q.customerEmail,
+            customer_tpin: q.customerTpin,
+            subtotal: q.subtotal,
+            discount_type: q.discountType,
+            discount_value: q.discountValue,
+            discount_amount: q.discountAmount,
+            tax_amount: q.taxAmount,
+            total: q.total,
+            status: q.status || 'draft',
+            notes: q.notes,
+            expiry_date: q.expiryDate,
+          },
+          items: items.map(i => ({
+            product_id: i.productId,
+            product_name: i.productName,
+            quantity: i.quantity,
+            unit_price: i.unitPrice,
+            discount_type: i.discountType,
+            discount_value: i.discountValue,
+            line_total: i.lineTotal,
+          })),
+        },
+        createdAt: new Date().toISOString(),
+      });
+      toast({ title: 'Quotation saved offline', description: 'Will sync when connected.' });
+      return { id: opId } as any;
+    }
 
     // Atomic: header + items in one transaction (SECURITY DEFINER RPC).
     // Works for both owners and cashiers.
@@ -185,6 +226,18 @@ export function useQuotations(businessId: string | undefined) {
     if (q.notes !== undefined) updateData.notes = q.notes;
     if (q.expiryDate !== undefined) updateData.expiry_date = q.expiryDate;
 
+    if (!isOnline) {
+      await queuePendingOp({
+        id: generateOfflineId(),
+        businessId: businessId!,
+        type: 'quotation_update',
+        payload: { id, header: updateData, items: items || [] },
+        createdAt: new Date().toISOString(),
+      });
+      toast({ title: 'Quotation saved offline', description: 'Will sync when connected.' });
+      return;
+    }
+
     const { error } = await supabase.from('quotations').update(updateData).eq('id', id);
     if (error) throw error;
 
@@ -211,6 +264,18 @@ export function useQuotations(businessId: string | undefined) {
   };
 
   const softDeleteQuotation = async (id: string) => {
+    if (!isOnline) {
+      await queuePendingOp({
+        id: generateOfflineId(),
+        businessId: businessId!,
+        type: 'quotation_delete',
+        payload: { id },
+        createdAt: new Date().toISOString(),
+      });
+      setQuotations(prev => prev.filter(q => q.id !== id));
+      toast({ title: 'Quotation deleted offline', description: 'Will sync when connected.' });
+      return;
+    }
     const { error } = await supabase.from('quotations')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id);

@@ -155,7 +155,7 @@ const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdi
       doc.text(item.productName.substring(0, 40), 18, y);
       doc.text(item.quantity.toString(), 108, y);
       doc.text(`K${item.unitPrice.toFixed(2)}`, 122, y);
-      const disc = item.discountType === 'percentage' ? `${item.discountValue}%` : item.discountValue > 0 ? `K${item.discountValue.toFixed(2)}` : '-';
+      const disc = item.discountType === 'percentage' ? (item.discountValue > 0 ? `${item.discountValue}%` : '-') : (item.discountValue > 0 ? `K${item.discountValue.toFixed(2)}` : '-');
       doc.text(disc, 147, y);
       doc.setFont("helvetica", "bold");
       doc.text(`K${item.lineTotal.toFixed(2)}`, w - 18, y, { align: "right" });
@@ -340,7 +340,7 @@ const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdi
                     <td className="py-2.5 px-3 text-center">{item.quantity}</td>
                     <td className="py-2.5 px-3 text-right">K{item.unitPrice.toFixed(2)}</td>
                     <td className="py-2.5 px-3 text-right text-muted-foreground">
-                      {item.discountType === 'percentage' ? `${item.discountValue}%` : item.discountValue > 0 ? `K${item.discountValue.toFixed(2)}` : '-'}
+                      {item.discountType === 'percentage' ? (item.discountValue > 0 ? `${item.discountValue}%` : '-') : (item.discountValue > 0 ? `K${item.discountValue.toFixed(2)}` : '-')}
                     </td>
                     <td className="py-2.5 px-3 text-right font-bold">K{item.lineTotal.toFixed(2)}</td>
                   </tr>

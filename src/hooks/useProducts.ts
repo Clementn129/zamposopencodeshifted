@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { cacheProducts, getCachedProducts, getUnsyncedSales, getUnsyncedStockUpdates } from "@/lib/offlineStorage";
+import { cacheProducts, getCachedProducts, getUnsyncedSales, getUnsyncedStockUpdates, cacheProductImageBlob, getCachedImageBlob, getPendingOps } from "@/lib/offlineStorage";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -116,11 +116,59 @@ const resolveImageUrls = async (products: Product[]): Promise<Product[]> => {
   );
 };
 
+// Background-download image blobs for offline viewing with a concurrency limit of 3.
+// Runs at low priority after initial render so it never blocks the UI.
+const CONCURRENT_BLOB_DOWNLOADS = 3;
+
+const downloadImageBlob = async (path: string, signedUrl: string): Promise<void> => {
+  try {
+    const existing = await getCachedImageBlob(path);
+    if (existing) return;
+    const response = await fetch(signedUrl);
+    if (!response.ok) return;
+    const blob = await response.blob();
+    await cacheProductImageBlob(path, blob);
+  } catch {
+    // skip silently — image will fall back to signed URL next time
+  }
+};
+
+const backgroundCacheImageBlobs = (products: Product[]): void => {
+  const toDownload = products.filter((p): p is Product & { imagePath: string; imageUrl: string } =>
+    !!p.imagePath && !!p.imageUrl
+  );
+  if (toDownload.length === 0) return;
+
+  const run = async () => {
+    for (let i = 0; i < toDownload.length; i += CONCURRENT_BLOB_DOWNLOADS) {
+      const chunk = toDownload.slice(i, i + CONCURRENT_BLOB_DOWNLOADS);
+      await Promise.all(chunk.map((p) => downloadImageBlob(p.imagePath, p.imageUrl)));
+      // Yield to the event loop between chunks
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  };
+  // Defer to idle time or a microtask if requestIdleCallback is not available
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(() => { run(); });
+  } else {
+    setTimeout(() => { run(); }, 1000);
+  }
+};
+
 export function useProducts(businessId: string | undefined) {
   const { isOnline } = useOnlineStatus();
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const blobUrlsRef = useRef<string[]>([]);
+
+  // Revoke blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      blobUrlsRef.current = [];
+    };
+  }, []);
 
   // POS-facing list: hide parents that have active variants (parent is just a grouping)
   // and always exclude inactive products.
@@ -172,6 +220,10 @@ export function useProducts(businessId: string | undefined) {
       return;
     }
 
+    // Revoke previous blob URLs from offline image cache
+    blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    blobUrlsRef.current = [];
+
     setProducts((prev) => {
       if (prev.length === 0) setIsLoading(true);
       return prev;
@@ -180,12 +232,14 @@ export function useProducts(businessId: string | undefined) {
 
     try {
       if (isOnline) {
-        const [unsyncedSales, unsyncedStockUpdates] = await Promise.all([
+        const [unsyncedSales, unsyncedStockUpdates, pendingOps] = await Promise.all([
           getUnsyncedSales(businessId),
           getUnsyncedStockUpdates(businessId),
+          getPendingOps(businessId),
         ]);
 
-        if (unsyncedSales.length > 0 || unsyncedStockUpdates.length > 0) {
+        const hasPendingProductOps = pendingOps.some(op => op.type.startsWith('product_'));
+        if (unsyncedSales.length > 0 || unsyncedStockUpdates.length > 0 || hasPendingProductOps) {
           const cached = await getCachedProducts(businessId);
           setProducts(cached.map(mapCachedProduct));
           setIsLoading(false);
@@ -210,6 +264,8 @@ export function useProducts(businessId: string | undefined) {
         const withUrls = await resolveImageUrls(mapped);
         setProducts(withUrls);
 
+        backgroundCacheImageBlobs(withUrls);
+
         await cacheProducts(
           withUrls.map((p) => ({
             id: p.id,
@@ -231,7 +287,29 @@ export function useProducts(businessId: string | undefined) {
         );
       } else {
         const cached = await getCachedProducts(businessId);
-        setProducts(cached.map(mapCachedProduct));
+        const mapped = cached.map(mapCachedProduct);
+        setProducts(mapped);
+
+        // Resolve cached image blobs to object URLs for offline viewing
+        if (mapped.some(p => p.imagePath)) {
+          (async () => {
+            const resolved = await Promise.all(
+              mapped.map(async (p) => {
+                if (!p.imagePath) return p;
+                try {
+                  const blob = await getCachedImageBlob(p.imagePath);
+                  if (!blob) return p;
+                  const url = URL.createObjectURL(blob);
+                  blobUrlsRef.current.push(url);
+                  return { ...p, imageUrl: url };
+                } catch {
+                  return p;
+                }
+              })
+            );
+            setProducts(resolved);
+          })();
+        }
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to load products";

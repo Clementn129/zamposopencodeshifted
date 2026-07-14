@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Download, TrendingUp, ShoppingCart, Receipt, Wallet, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
@@ -14,6 +14,8 @@ import { useBusiness } from "@/hooks/useBusiness";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZMW } from "@/lib/currency";
 import { useToast } from "@/hooks/use-toast";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { getCachedSalesHistory, getCachedExpenses, getCachedDebtors } from "@/lib/offlineStorage";
 
 type Period = "today" | "week" | "month";
 
@@ -22,6 +24,7 @@ const MONTHS = ["January","February","March","April","May","June","July","August
 const Reports = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { isOnline } = useOnlineStatus();
   const { user, isLoading: authLoading } = useAuthContext();
   const { business, isLoading: bizLoading } = useBusiness(user?.id);
   const [period, setPeriod] = useState<Period>("today");
@@ -47,6 +50,27 @@ const Reports = () => {
     if (!business?.id) return;
     setLoading(true);
     try {
+      if (!isOnline) {
+        const [cachedSales, cachedExpenses, cachedDebtors] = await Promise.all([
+          getCachedSalesHistory(business.id),
+          getCachedExpenses(business.id),
+          getCachedDebtors(business.id),
+        ]);
+        const from = range.from.getTime();
+        const to = range.to.getTime();
+        setSales(cachedSales.filter(s => {
+          const t = new Date(s.createdAt).getTime();
+          return t >= from && t <= to;
+        }));
+        setExpenses(cachedExpenses.filter(e => {
+          const t = new Date(e.expense_date).getTime();
+          return t >= from && t <= to;
+        }));
+        setDebtors(cachedDebtors.map(d => ({ id: d.id, balance_due: d.amountOwed - d.amountPaid, status: d.status })));
+        toast({ title: "Offline data", description: "Showing cached report data." });
+        return;
+      }
+
       const [{ data: s }, { data: e }, { data: d }] = await Promise.all([
         supabase
           .from("sales")
@@ -79,12 +103,12 @@ const Reports = () => {
     }
   };
 
+  const fetchAllRef = useRef(fetchAll);
+  fetchAllRef.current = fetchAll;
+
   useEffect(() => {
-    void fetchAll();
-    if (!business?.id) return;
-    // Realtime is centralised in AppSyncManager; subscribe to its window events
-    // instead of opening another postgres_changes channel per Reports mount.
-    const onChange = () => { void fetchAll(); };
+    void fetchAllRef.current();
+    const onChange = () => { void fetchAllRef.current(); };
     window.addEventListener("zampos:sales-changed", onChange);
     window.addEventListener("zampos:expenses-changed", onChange);
     window.addEventListener("zampos:debtors-changed", onChange);

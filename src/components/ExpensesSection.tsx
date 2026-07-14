@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { generateOfflineId, queuePendingOp } from '@/lib/offlineStorage';
 
 // 'personal' in the DB now represents Owner Drawings (money the owner takes
 // out for personal use). Both categories reduce available business cash, but
@@ -136,15 +137,41 @@ const ExpensesSection = ({ businessId, isOnline = true, onExpenseChanged }: Expe
 
     setSaving(true);
     try {
-      const { error } = await supabase.from('expenses').insert({
+      const expenseData = {
         business_id: businessId,
         name: name.trim(),
         amount: Number(amount),
         expense_date: expenseDate,
         notes: notes.trim() || null,
         category,
-      } as any);
+      };
 
+      if (!isOnline) {
+        const opId = generateOfflineId();
+        await queuePendingOp({
+          id: opId,
+          businessId,
+          type: 'expense_create',
+          payload: expenseData,
+          createdAt: new Date().toISOString(),
+        });
+        // Update local state immediately
+        setExpenses(prev => [{
+          id: opId,
+          name: expenseData.name,
+          amount: expenseData.amount,
+          expenseDate: expenseData.expense_date,
+          notes: expenseData.notes,
+          category: expenseData.category as ExpenseCategory,
+        }, ...prev]);
+        toast({ title: 'Expense Saved Offline' });
+        setOpen(false);
+        resetForm();
+        onExpenseChanged?.();
+        return;
+      }
+
+      const { error } = await supabase.from('expenses').insert(expenseData as any);
       if (error) throw error;
 
       toast({ title: 'Expense Added' });
@@ -163,6 +190,20 @@ const ExpensesSection = ({ businessId, isOnline = true, onExpenseChanged }: Expe
     if (!confirm('Delete this expense?')) return;
 
     try {
+      if (!isOnline) {
+        await queuePendingOp({
+          id: generateOfflineId(),
+          businessId,
+          type: 'expense_delete',
+          payload: { id },
+          createdAt: new Date().toISOString(),
+        });
+        setExpenses(prev => prev.filter(e => e.id !== id));
+        toast({ title: 'Expense Deleted Offline' });
+        onExpenseChanged?.();
+        return;
+      }
+
       const { error } = await supabase.from('expenses').delete().eq('id', id);
       if (error) throw error;
       toast({ title: 'Expense Deleted' });
@@ -185,7 +226,7 @@ const ExpensesSection = ({ businessId, isOnline = true, onExpenseChanged }: Expe
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm" disabled={!isOnline}>
+              <Button variant="outline" size="sm">
                 <Plus className="h-4 w-4 mr-1" /> Add
               </Button>
             </DialogTrigger>
@@ -272,7 +313,7 @@ const ExpensesSection = ({ businessId, isOnline = true, onExpenseChanged }: Expe
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="font-bold text-destructive">-ZMW {exp.amount.toFixed(2)}</span>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(exp.id)} disabled={!isOnline}>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(exp.id)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
