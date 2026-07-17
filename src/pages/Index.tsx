@@ -70,7 +70,7 @@ const differentiators = [
 const faqs = [
   { q: 'Do I need internet to use ZamPOS?', a: 'No! ZamPOS works 100% offline. Record sales, check stock, and manage debts without any internet connection. Your data syncs automatically when you reconnect.' },
   { q: 'Can I use it on my phone?', a: 'Yes — ZamPOS is designed for phones first. It works on any smartphone, tablet, or laptop with a browser. No app download needed.' },
-  { q: 'What happens after the free trial?', a: 'After your 3-day free trial, you can subscribe for just K 100/month to keep all your data and features. If you don\'t subscribe, your account is paused until you do.' },
+  { q: 'What happens after the free trial?', a: 'After your 3-day free trial, simply subscribe to keep all your data and features. If you don\'t subscribe, your account is paused until you do.' },
   { q: 'Is my data safe?', a: 'Absolutely. Your data is encrypted and stored securely in the cloud. Only you can access your business information.' },
   { q: 'Can I export my data?', a: 'Yes! Export your sales history, product list, and reports as CSV files anytime. Your data belongs to you.' },
 ];
@@ -140,7 +140,7 @@ const Index = () => {
       <section className="px-6 py-12 bg-destructive/5">
         <h2 className="text-2xl font-display font-bold text-center mb-2">Are you losing money?</h2>
         <p className="text-sm text-muted-foreground text-center mb-8 max-w-md mx-auto">
-          Most small business owners lose K 500+ every month from forgotten debts, missing stock, and no sales records.
+          Most small business owners lose money every month from forgotten debts, missing stock, and no sales records.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
           {painPoints.map(p => (
@@ -231,20 +231,13 @@ const Index = () => {
         </div>
       </section>
 
-      {/* Pricing with anchoring */}
+      {/* CTA */}
       <section className="px-6 py-12">
         <div className="max-w-sm mx-auto text-center">
-          <h2 className="text-2xl font-display font-bold mb-2">Simple, affordable pricing</h2>
-          <p className="text-sm text-muted-foreground mb-6">Less than the cost of a single misplaced sale.</p>
+          <h2 className="text-2xl font-display font-bold mb-2">Start your free trial today</h2>
+          <p className="text-sm text-muted-foreground mb-6">No credit card required. Cancel anytime.</p>
           <Card className="shadow-lg border-primary/20">
             <CardContent className="p-8">
-              <p className="text-sm text-muted-foreground mb-2">Monthly</p>
-              <div className="flex items-baseline justify-center gap-2 mb-1">
-                <span className="text-lg text-muted-foreground line-through">K 200</span>
-                <span className="text-4xl font-bold">K 100</span>
-                <span className="text-muted-foreground">/mo</span>
-              </div>
-              <p className="text-xs text-primary font-medium mb-4">Save K 1,200/year vs hiring someone to track sales</p>
               <ul className="text-sm text-left space-y-2 mb-6">
                 {['Unlimited sales & products', 'Offline mode', 'Quotations & receipts', 'Debtor tracking', 'Sales reports & CSV export', 'Push notifications', 'WhatsApp receipt sharing'].map(f => (
                   <li key={f} className="flex items-center gap-2">
