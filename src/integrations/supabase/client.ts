@@ -30,6 +30,107 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+/**
+ * Custom auth storage that isolates sessions per user so signing out of one
+ * account doesn't affect another.  Sessions are stored in localStorage with
+ * a user-ID suffix (e.g.  `sb-{ref}-auth-token-{userId}`).  A per-tab marker
+ * in sessionStorage tracks which user this tab is using.
+ *
+ *   setItem → extracts user.id from the session JSON, writes `key-{userId}`
+ *   getItem → reads `key-{activeUserId}`, falls back to scanning for any
+ *             user-specific key or the legacy unprefixed key
+ *   removeItem → removes `key-{activeUserId}` only (other users untouched)
+ */
+function buildMultiAccountStorage(): Storage {
+  const ACTIVE_USER_KEY = 'zampos_active_user';
+
+  const getActiveUserId = (): string | null => {
+    try { return sessionStorage.getItem(ACTIVE_USER_KEY); } catch { return null; }
+  };
+  const setActiveUserId = (id: string) => {
+    try { sessionStorage.setItem(ACTIVE_USER_KEY, id); } catch { /* noop */ }
+  };
+
+  return {
+    get length() { return localStorage.length; },
+    clear() { localStorage.clear(); },
+    key(index: number) { return localStorage.key(index); },
+
+    getItem(key: string): string | null {
+      // Non-auth keys pass through directly
+      if (!key.includes('auth-token')) return localStorage.getItem(key);
+
+      // 1) Active user's specific key
+      const activeId = getActiveUserId();
+      if (activeId) {
+        const val = localStorage.getItem(`${key}-${activeId}`);
+        if (val) return val;
+      }
+
+      // 2) Legacy unprefixed key – migrate on first read
+      const legacy = localStorage.getItem(key);
+      if (legacy) {
+        try {
+          const session = JSON.parse(legacy);
+          const uid: string | undefined = session?.user?.id ?? session?.user?.sub;
+          if (uid) {
+            localStorage.setItem(`${key}-${uid}`, legacy);
+            localStorage.removeItem(key);
+            setActiveUserId(uid);
+          }
+        } catch { /* ignore parse errors */ }
+        return legacy;
+      }
+
+      // 3) Scan for any existing user-specific key
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(key + '-')) {
+          const val = localStorage.getItem(k);
+          if (val) {
+            setActiveUserId(k.slice(key.length + 1));
+            return val;
+          }
+        }
+      }
+
+      return null;
+    },
+
+    setItem(key: string, value: string): void {
+      // Non-auth keys pass through directly
+      if (!key.includes('auth-token')) {
+        localStorage.setItem(key, value);
+        return;
+      }
+      try {
+        const session = JSON.parse(value);
+        const userId: string | undefined = session?.user?.id ?? session?.user?.sub;
+        if (userId) {
+          localStorage.setItem(`${key}-${userId}`, value);
+          setActiveUserId(userId);
+          return;
+        }
+      } catch { /* fall through to unprefixed */ }
+      localStorage.setItem(key, value);
+    },
+
+    removeItem(key: string): void {
+      // Non-auth keys pass through directly
+      if (!key.includes('auth-token')) {
+        localStorage.removeItem(key);
+        return;
+      }
+      const activeId = getActiveUserId();
+      if (activeId) {
+        localStorage.removeItem(`${key}-${activeId}`);
+        return;
+      }
+      localStorage.removeItem(key);
+    },
+  };
+}
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
@@ -38,7 +139,7 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
   },
   auth: {
-    storage: localStorage,
+    storage: buildMultiAccountStorage(),
     persistSession: true,
     autoRefreshToken: true,
   }

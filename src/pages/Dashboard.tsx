@@ -14,7 +14,7 @@ import LowStockAlert from '@/components/LowStockAlert';
 import DashboardNotifications from '@/components/DashboardNotifications';
 import DashboardStats from '@/components/DashboardStats';
 
-import { Store, ShoppingCart, Package, CreditCard, LogOut, Copy, Receipt, Settings as SettingsIcon, Users, Wallet, Briefcase, BarChart3, FileClock, UserCheck } from 'lucide-react';
+import { Store, ShoppingCart, Package, CreditCard, LogOut, Copy, Receipt, Settings as SettingsIcon, Users, Wallet, Briefcase, BarChart3, FileClock, UserCheck, CalendarClock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -25,6 +25,7 @@ const Dashboard = () => {
   const { labels, isService } = useBusinessType(business?.id);
   const { toast } = useToast();
   const [hasSalesToday, setHasSalesToday] = useState(false);
+  const [expiringProducts, setExpiringProducts] = useState<Array<{ name: string; expiryDate: string }>>([]);
 
   const { isLocked, daysRemaining } = checkSubscriptionStatus();
 
@@ -57,6 +58,31 @@ const Dashboard = () => {
       window.removeEventListener("zampos:sync-complete", handler);
     };
   }, [checkHasSalesToday]);
+
+  const checkExpiringProducts = useCallback(async () => {
+    if (!business?.id || isService) return;
+    const today = new Date().toISOString().split('T')[0];
+    const future = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+    supabase
+      .from('products')
+      .select('name, expiry_date')
+      .eq('business_id', business.id)
+      .eq('track_expiry', true)
+      .gte('expiry_date', today)
+      .lte('expiry_date', future)
+      .order('expiry_date', { ascending: true })
+      .limit(20)
+      .then(({ data }) => {
+        if (data) setExpiringProducts(data.map((r: any) => ({ name: r.name, expiryDate: r.expiry_date })));
+      })
+      .catch(() => {});
+  }, [business?.id, isService]);
+
+  useEffect(() => {
+    checkExpiringProducts();
+    window.addEventListener("zampos:sync-complete", checkExpiringProducts);
+    return () => window.removeEventListener("zampos:sync-complete", checkExpiringProducts);
+  }, [checkExpiringProducts]);
 
   usePushNotifications(
     daysRemaining,
@@ -173,6 +199,36 @@ const Dashboard = () => {
 
           {/* Low Stock Alerts - only for retail businesses */}
           {!isService && <LowStockAlert businessId={business.id} />}
+
+          {/* Expiring Soon - only for retail businesses */}
+          {!isService && expiringProducts.length > 0 && (
+            <Card className="border-amber-300 dark:border-amber-700">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                  <CalendarClock className="w-4 h-4" />
+                  Expiring Soon
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  {expiringProducts.length} product{expiringProducts.length > 1 ? 's' : ''} expiring within 30 days
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="divide-y divide-border text-sm">
+                  {expiringProducts.slice(0, 10).map((p, i) => {
+                    const daysLeft = Math.ceil((new Date(p.expiryDate).getTime() - Date.now()) / 86400000);
+                    return (
+                      <li key={i} className="flex justify-between py-1.5">
+                        <span className="truncate mr-2">{p.name}</span>
+                        <span className={`font-mono shrink-0 ${daysLeft <= 7 ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}>
+                          {daysLeft <= 0 ? 'Expired' : `${daysLeft}d`}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Dashboard Notifications */}
           <DashboardNotifications

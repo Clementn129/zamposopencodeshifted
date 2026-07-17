@@ -60,6 +60,8 @@ export function useProductCategories(businessId: string | undefined) {
           payload: { name: trimmed },
           createdAt: new Date().toISOString(),
         });
+        const tempId = generateOfflineId();
+        setCategories((prev) => [...prev, { id: tempId, name: trimmed, sortOrder: prev.length }]);
         return trimmed;
       }
 

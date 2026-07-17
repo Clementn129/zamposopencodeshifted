@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText } from "lucide-react";
+import { ArrowLeft, LogOut, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,21 @@ const Pos = () => {
   const { business, isLoading: bizLoading, refetch: refetchBusiness, checkSubscriptionStatus } = useBusiness(user?.id);
   const { isLocked } = checkSubscriptionStatus();
 
+  const [cashierName, setCashierName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!business?.id || role !== 'cashier' || !user) return;
+    supabase
+      .from('business_cashiers')
+      .select('display_name, username')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setCashierName(data.display_name || data.username);
+      })
+      .catch(() => {});
+  }, [business?.id, role, user]);
+
   const { activeProducts, isLoading: productsLoading, isOnline, refetch: refetchProducts } = useProducts(business?.id);
   const { isSyncing, pendingCount, lastSyncError, syncNow } = useSalesSync(business?.id);
   const { labels, isService } = useBusinessType(business?.id);
@@ -96,7 +111,8 @@ const Pos = () => {
       (p) =>
         p.name.toLowerCase().includes(query) ||
         p.id.toLowerCase().includes(query) ||
-        (p.category && p.category.toLowerCase().includes(query))
+        (p.category && p.category.toLowerCase().includes(query)) ||
+        (p.barcode && p.barcode.toLowerCase().includes(query))
     );
   }, [activeProducts, searchQuery]);
 
@@ -424,7 +440,9 @@ const addToCart = async (productId: string) => {
           status: amountPaidNow > 0 ? 'partially_paid' : 'unpaid',
           notes: creditNotes.trim() || null,
           createdAt,
+          dueDate: dueDate || null,
         }]);
+        await saveOfflineSale(salePayload);
         for (const line of cart) {
           const p = activeProducts.find((x) => x.id === line.productId);
           await updateCachedProductStock(line.productId, Math.max(0, Number(p?.stock ?? 0) - line.quantity));
@@ -530,17 +548,23 @@ const addToCart = async (productId: string) => {
         <header className="bg-card border-b border-border px-4 py-4">
           <div className="max-w-4xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {role === 'cashier' ? (
-                <Button variant="ghost" size="icon" onClick={async () => { await signOut(); navigate('/auth'); }} aria-label="Sign out"><ArrowLeft className="h-5 w-5" /></Button>
-              ) : (
-                <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}><ArrowLeft className="h-5 w-5" /></Button>
-              )}
+              <Button variant="ghost" size="icon" onClick={() => navigate(role === 'cashier' ? '/auth' : '/dashboard')} aria-label="Back"><ArrowLeft className="h-5 w-5" /></Button>
               <div>
                 <h1 className="font-display font-bold text-lg flex items-center gap-2"><ShoppingCart className="h-5 w-5" /> POS</h1>
-                <p className="text-xs text-muted-foreground">{isOnline ? (isSyncing ? "Syncing…" : "Online") : "Offline"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {role === 'cashier' && cashierName ? <span className="mr-2">{cashierName}</span> : null}
+                  {isOnline ? (isSyncing ? "Syncing…" : "Online") : "Offline"}
+                </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={refetchProducts}>Refresh</Button>
+            <div className="flex items-center gap-2">
+              {role === 'cashier' ? (
+                <Button variant="destructive" size="sm" onClick={async () => { await signOut(); navigate('/auth'); }}>
+                  <LogOut className="h-4 w-4 mr-1" /> Logout
+                </Button>
+              ) : null}
+              <Button variant="outline" size="sm" onClick={refetchProducts}>Refresh</Button>
+            </div>
           </div>
         </header>
 

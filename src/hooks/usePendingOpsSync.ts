@@ -77,6 +77,7 @@ export function usePendingOpsSync(businessId: string | undefined) {
                 amount_paid: amountPaid,
                 status: amountPaid > 0 ? 'partially_paid' : 'unpaid',
                 notes: op.payload.notes || null,
+                due_date: op.payload.dueDate || null,
               });
 
               if (debtorErr) throw debtorErr;
@@ -153,6 +154,8 @@ export function usePendingOpsSync(businessId: string | undefined) {
                 barcode: op.payload.barcode || null,
                 item_type: op.payload.item_type ?? op.payload.itemType ?? 'product',
                 image_url: imageUrl,
+                track_expiry: op.payload.track_expiry ?? op.payload.trackExpiry ?? false,
+                expiry_date: op.payload.expiry_date ?? op.payload.expiryDate ?? null,
               }).select('id');
               if (createErr) throw createErr;
               const newProductId = created?.[0]?.id;
@@ -206,6 +209,8 @@ export function usePendingOpsSync(businessId: string | undefined) {
                 barcode: op.payload.barcode || null,
                 item_type: op.payload.item_type ?? op.payload.itemType,
                 image_url: imageUrl,
+                track_expiry: op.payload.track_expiry ?? op.payload.trackExpiry ?? false,
+                expiry_date: op.payload.expiry_date ?? op.payload.expiryDate ?? null,
               }).eq('id', op.payload.productId);
               if (updateErr) throw updateErr;
               processed.push(op.id);
@@ -241,11 +246,19 @@ export function usePendingOpsSync(businessId: string | undefined) {
             }
 
             case 'category_create': {
-              const { error: catErr } = await supabase.from('product_categories').insert({
-                business_id: businessId,
-                name: op.payload.name,
-              });
-              if (catErr) throw catErr;
+              const { data: existingCat } = await supabase
+                .from('product_categories')
+                .select('id')
+                .eq('business_id', businessId)
+                .ilike('name', op.payload.name)
+                .maybeSingle();
+              if (!existingCat) {
+                const { error: catErr } = await supabase.from('product_categories').insert({
+                  business_id: businessId,
+                  name: op.payload.name,
+                });
+                if (catErr) throw catErr;
+              }
               processed.push(op.id);
               break;
             }
@@ -376,7 +389,7 @@ export function usePendingOpsSync(businessId: string | undefined) {
         try {
           const { data: prodData } = await supabase
             .from('products')
-            .select('id, business_id, name, price, cost_price, stock, minimum_stock, category, is_active, tax_category, image_url, parent_id, variant_label, item_type')
+            .select('id, business_id, name, price, cost_price, stock, minimum_stock, category, barcode, is_active, tax_category, image_url, parent_id, variant_label, item_type, track_expiry, expiry_date')
             .eq('business_id', businessId)
             .limit(25000);
           if (prodData) {
@@ -389,18 +402,21 @@ export function usePendingOpsSync(businessId: string | undefined) {
               stock: Number(p.stock),
               minimumStock: Number(p.minimum_stock ?? 5),
               category: p.category,
+              barcode: p.barcode ?? null,
               isActive: p.is_active,
               taxCategory: p.tax_category || 'taxable',
               imageUrl: p.image_url,
               imagePath: p.image_url,
               parentId: p.parent_id,
               variantLabel: p.variant_label,
+              trackExpiry: p.track_expiry ?? false,
+              expiryDate: p.expiry_date ?? null,
             })));
           }
 
           const { data: debtData } = await supabase
             .from('debtors')
-            .select('id, business_id, customer_name, customer_phone, amount_owed, amount_paid, status, notes, created_at')
+            .select('id, business_id, customer_name, customer_phone, amount_owed, amount_paid, status, notes, created_at, due_date')
             .eq('business_id', businessId)
             .limit(1000);
           if (debtData) {
@@ -414,6 +430,7 @@ export function usePendingOpsSync(businessId: string | undefined) {
               status: d.status,
               notes: d.notes,
               createdAt: d.created_at,
+              dueDate: d.due_date,
             })));
           }
         } catch {

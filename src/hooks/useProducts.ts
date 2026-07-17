@@ -22,12 +22,14 @@ export type Product = {
   isActive: boolean;
   itemType: ItemType;
   taxCategory: 'taxable' | 'zero_rated' | 'exempt';
-  imageUrl: string | null;     // resolved signed URL ready for <img src>
-  imagePath: string | null;    // raw storage path stored on the row
+  imageUrl: string | null;
+  imagePath: string | null;
   parentId: string | null;
   variantLabel: string | null;
   createdAt?: string;
   updatedAt?: string;
+  trackExpiry?: boolean;
+  expiryDate?: string | null;
 };
 
 const mapRowToProduct = (row: ProductRow): Product => ({
@@ -46,6 +48,8 @@ const mapRowToProduct = (row: ProductRow): Product => ({
   imageUrl: null,
   imagePath: (row as any).image_url ?? null,
   parentId: (row as any).parent_id ?? null,
+  trackExpiry: (row as any).track_expiry ?? false,
+  expiryDate: (row as any).expiry_date ?? null,
   variantLabel: (row as any).variant_label ?? null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -61,6 +65,8 @@ const mapCachedProduct = (p: CachedProduct): Product => ({
   minimumStock: Number(p.minimumStock ?? 5),
   category: p.category ?? null,
   barcode: (p as any).barcode ?? null,
+  trackExpiry: (p as any).trackExpiry ?? false,
+  expiryDate: (p as any).expiryDate ?? null,
   isActive: p.isActive !== false,
   itemType: (((p as any).itemType ?? 'product') === 'service' ? 'service' : 'product'),
   taxCategory: ((p as any).taxCategory ?? 'taxable') as Product['taxCategory'],
@@ -192,7 +198,7 @@ export function useProducts(businessId: string | undefined) {
     try {
       let dbQuery = supabase
         .from("products")
-        .select("id, business_id, name, price, cost_price, stock, minimum_stock, category, is_active, tax_category, image_url, parent_id, variant_label, item_type, created_at, updated_at", { count: "exact" })
+        .select("id, business_id, name, price, cost_price, stock, minimum_stock, category, barcode, track_expiry, expiry_date, is_active, tax_category, image_url, parent_id, variant_label, item_type, created_at, updated_at", { count: "exact" })
         .eq("business_id", businessId)
         .eq("is_active", true);
 
@@ -248,7 +254,7 @@ export function useProducts(businessId: string | undefined) {
 
         const { data, error: fetchError } = await supabase
           .from("products")
-          .select("id, business_id, name, price, cost_price, stock, minimum_stock, category, is_active, tax_category, image_url, parent_id, variant_label, item_type, created_at, updated_at")
+          .select("id, business_id, name, price, cost_price, stock, minimum_stock, category, barcode, track_expiry, expiry_date, is_active, tax_category, image_url, parent_id, variant_label, item_type, created_at, updated_at")
           .eq("business_id", businessId)
           .order("created_at", { ascending: false })
           .limit(25000);
@@ -276,6 +282,9 @@ export function useProducts(businessId: string | undefined) {
             stock: p.stock,
             minimumStock: p.minimumStock,
             category: p.category,
+            barcode: p.barcode,
+            trackExpiry: p.trackExpiry,
+            expiryDate: p.expiryDate,
             isActive: p.isActive,
             itemType: p.itemType,
             taxCategory: p.taxCategory,

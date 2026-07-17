@@ -13,7 +13,7 @@ export const PAYMENT_DETAILS = {
       name: "Clement Mwila",
     },
   },
-  pricePerMonthZmw: 100, // base tier (1 cashier) — kept for legacy callers
+  pricePerMonthZmw: 200, // lowest tier (1 cashier) — kept for legacy admin calcs
   trialDays: 3,
 } as const;
 
@@ -29,10 +29,10 @@ export type PricingTier = {
 };
 
 export const PRICING_TIERS: PricingTier[] = [
-  { minCashiers: 0, maxCashiers: 1, priceZmw: 100, label: "1 cashier" },
-  { minCashiers: 2, maxCashiers: 3, priceZmw: 200, label: "2 – 3 cashiers" },
-  { minCashiers: 4, maxCashiers: 6, priceZmw: 350, label: "4 – 6 cashiers" },
-  { minCashiers: 7, maxCashiers: null, priceZmw: 500, label: "7+ cashiers" },
+  { minCashiers: 0, maxCashiers: 1, priceZmw: 200, label: "1 cashier" },
+  { minCashiers: 2, maxCashiers: 3, priceZmw: 350, label: "2 – 3 cashiers" },
+  { minCashiers: 4, maxCashiers: 4, priceZmw: 500, label: "4 cashiers" },
+  { minCashiers: 5, maxCashiers: null, priceZmw: 0, label: "5+ cashiers (custom)" },
 ];
 
 export const getPricingTier = (activeCashiers: number): PricingTier => {

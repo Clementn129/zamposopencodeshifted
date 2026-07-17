@@ -107,7 +107,10 @@ const Products = () => {
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [barcode, setBarcode] = useState("");
+  const [barcodeSvg, setBarcodeSvg] = useState<string | null>(null);
   const [itemType, setItemType] = useState<"product" | "service">(isService ? "service" : "product");
+  const [trackExpiry, setTrackExpiry] = useState(false);
+  const [expiryDate, setExpiryDate] = useState("");
 
   // New-category input inside the "Manage categories" dialog
   const [pendingNewCategory, setPendingNewCategory] = useState("");
@@ -137,6 +140,7 @@ const Products = () => {
     return topLevel.filter((p) => {
       if (p.name.toLowerCase().includes(q)) return true;
       if ((p.category ?? "").toLowerCase().includes(q)) return true;
+      if ((p.barcode ?? "").toLowerCase().includes(q)) return true;
       const vars = variantsByParent[p.id] ?? [];
       return vars.some((v) => (v.variantLabel ?? "").toLowerCase().includes(q));
     });
@@ -166,7 +170,10 @@ const Products = () => {
     setImagePath(null);
     setImageUrl(null);
     setBarcode("");
+    setBarcodeSvg(null);
     setItemType(isService ? "service" : "product");
+    setTrackExpiry(false);
+    setExpiryDate("");
     setEditing(null);
   };
 
@@ -188,7 +195,10 @@ const Products = () => {
     setImagePath(p.imagePath);
     setImageUrl(p.imageUrl);
     setBarcode(p.barcode ?? "");
+    setBarcodeSvg(null);
     setItemType(p.itemType ?? (isService ? "service" : "product"));
+    setTrackExpiry(p.trackExpiry ?? false);
+    setExpiryDate(p.expiryDate ?? "");
     setOpen(true);
   };
 
@@ -250,6 +260,8 @@ const Products = () => {
         image_url: imagePath,
         barcode: barcode.trim() || null,
         item_type: resolvedItemType,
+        track_expiry: trackExpiry && !isServiceItem,
+        expiry_date: trackExpiry && !isServiceItem && expiryDate ? expiryDate : null,
       };
 
       if (isOnline) {
@@ -303,6 +315,8 @@ const Products = () => {
             barcode: payload.barcode || null,
             parentId: null,
             variantLabel: null,
+            trackExpiry: payload.track_expiry,
+            expiryDate: payload.expiry_date,
           } as any);
           await queuePendingOp({
             id: generateOfflineId(),
@@ -830,9 +844,15 @@ const Products = () => {
                         const hasVariants = vars.length > 0;
                         const rowIsService = p.itemType === "service";
                         const showRowStock = labels.showStock && !rowIsService;
+                        let cardBg = "bg-secondary";
+                        if (p.trackExpiry && p.expiryDate) {
+                          const dl = Math.ceil((new Date(p.expiryDate).getTime() - Date.now()) / 86400000);
+                          if (dl <= 0) cardBg = "bg-red-100 dark:bg-red-900/30";
+                          else if (dl <= 30) cardBg = "bg-yellow-50 dark:bg-yellow-900/20";
+                        }
                         return (
-                          <div key={p.id} className="space-y-1 ml-2">
-                            <div className="flex items-center justify-between bg-secondary rounded-lg p-3">
+                            <div key={p.id} className="space-y-1 ml-2">
+                            <div className={"flex items-center justify-between rounded-lg p-3 " + cardBg}>
                               <div className="flex items-center gap-3 flex-1 min-w-0">
                                 {p.imageUrl ? (
                                   <img
@@ -879,6 +899,14 @@ const Products = () => {
                                     {showRowStock && !hasVariants
                                       ? ` • ${labels.stockDisplay(p.stock ?? 0)}`
                                       : ""}
+                                    {p.trackExpiry && p.expiryDate ? (
+                                      (() => {
+                                        const daysLeft = Math.ceil((new Date(p.expiryDate).getTime() - Date.now()) / 86400000);
+                                        const expired = daysLeft <= 0;
+                                        const soon = daysLeft > 0 && daysLeft <= 30;
+                                        return ` • ${expired ? "EXPIRED" : soon ? `Exp ${daysLeft}d` : `Exp ${p.expiryDate}`}`;
+                                      })()
+                                    ) : ""}
                                   </p>
                                 </div>
                               </div>
@@ -1092,14 +1120,71 @@ const Products = () => {
 
             <div className="space-y-2">
               <Label>Barcode (optional)</Label>
-              <Input
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                placeholder="Scan or type barcode / SKU"
-                data-scanner-target="true"
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={barcode}
+                  onChange={(e) => {
+                    setBarcode(e.target.value);
+                    setBarcodeSvg(null);
+                  }}
+                  placeholder="Scan or type barcode / SKU"
+                  data-scanner-target="true"
+                  className="flex-1"
+                />
+                <Button variant="outline" size="sm" onClick={() => {
+                  const prefix = "2";
+                  const ts = Date.now().toString().slice(-8);
+                  const raw = prefix + ts;
+                  let sum = 0;
+                  for (let i = 0; i < raw.length; i++) {
+                    sum += parseInt(raw[i]) * (i % 2 === 0 ? 1 : 3);
+                  }
+                  const check = (10 - (sum % 10)) % 10;
+                  const code = raw + check;
+                  setBarcode(code);
+                  setBarcodeSvg(null);
+                }}>
+                  Generate
+                </Button>
+              </div>
+              {barcode && /^\d{8,}$/.test(barcode) && (
+                <div className="mt-2 flex flex-col items-center gap-2">
+                  <svg key={barcode} id="barcode-svg" ref={(el) => {
+                    if (el && !el.hasChildNodes() && typeof window !== 'undefined') {
+                      import('jsbarcode').then((m) => {
+                        try {
+                          m.default(el, barcode, { format: 'CODE128', width: 2, height: 60, displayValue: true, margin: 5 });
+                          setBarcodeSvg(new XMLSerializer().serializeToString(el));
+                        } catch { /* ignore invalid barcode */ }
+                      }).catch(() => {});
+                    }
+                  }} />
+                  {barcodeSvg && (
+                    <Button variant="outline" size="sm" onClick={() => {
+                      const canvas = document.createElement('canvas');
+                      const ctx = canvas.getContext('2d');
+                      const img = new Image();
+                      const svgBlob = new Blob([barcodeSvg], { type: 'image/svg+xml;charset=utf-8' });
+                      const url = URL.createObjectURL(svgBlob);
+                      img.onload = () => {
+                        canvas.width = img.width * 2;
+                        canvas.height = img.height * 2;
+                        ctx!.scale(2, 2);
+                        ctx!.drawImage(img, 0, 0);
+                        URL.revokeObjectURL(url);
+                        const a = document.createElement('a');
+                        a.download = `barcode-${barcode}.png`;
+                        a.href = canvas.toDataURL('image/png');
+                        a.click();
+                      };
+                      img.src = url;
+                    }}>
+                      Download PNG
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
-
 
             {labels.showStock && itemType !== "service" && (!editing || !(variantsByParent[editing.id]?.length)) && (
               <div className="grid grid-cols-2 gap-3">
@@ -1116,6 +1201,31 @@ const Products = () => {
                     placeholder="5"
                   />
                 </div>
+              </div>
+            )}
+
+            {itemType !== "service" && (
+              <div className="space-y-3 border rounded-lg p-3 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="track-expiry" className="cursor-pointer">Track Expiry Date</Label>
+                  <input
+                    id="track-expiry"
+                    type="checkbox"
+                    checked={trackExpiry}
+                    onChange={(e) => setTrackExpiry(e.target.checked)}
+                    className="toggle toggle-sm"
+                  />
+                </div>
+                {trackExpiry && (
+                  <div className="space-y-2">
+                    <Label>Expiry Date</Label>
+                    <Input
+                      type="date"
+                      value={expiryDate}
+                      onChange={(e) => setExpiryDate(e.target.value)}
+                    />
+                  </div>
+                )}
               </div>
             )}
 

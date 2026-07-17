@@ -607,7 +607,7 @@ const AdminDashboard = () => {
                     <TrendingUp className="h-4 w-4" /> Revenue Overview
                   </CardTitle>
                   <CardDescription>
-                    Subscription fee: K{PAYMENT_DETAILS.pricePerMonthZmw}/month per business
+                    Revenue from approved payments this month
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -617,9 +617,9 @@ const AdminDashboard = () => {
                     <p className="text-xs text-muted-foreground mt-1">{stats.monthlyCount} payments this period</p>
                   </div>
                   <div className="rounded-xl border border-border/60 p-4">
-                    <p className="text-xs text-muted-foreground">Subscription Fee</p>
-                    <p className="text-2xl font-bold">K{PAYMENT_DETAILS.pricePerMonthZmw}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Per business / month</p>
+                    <p className="text-xs text-muted-foreground">Expected Monthly Revenue</p>
+                    <p className="text-2xl font-bold">K{(stats.active * PAYMENT_DETAILS.pricePerMonthZmw).toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Based on active × lowest tier</p>
                   </div>
                   <div className="rounded-xl border border-border/60 p-4">
                     <p className="text-xs text-muted-foreground">Collection Rate</p>
@@ -841,7 +841,7 @@ const AdminDashboard = () => {
                                 <SelectItem value="auto">Auto (by cashier count)</SelectItem>
                                 {PRICING_TIERS.map((t) => (
                                   <SelectItem key={t.label} value={t.label}>
-                                    {t.label} — K{t.priceZmw}/mo
+                                    {t.label}{t.priceZmw > 0 ? ` — K${t.priceZmw}/mo` : ' — Custom'}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

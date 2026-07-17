@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Calendar, Download, Edit, Receipt, TrendingUp, Trash2, RotateCcw, Check, Clock, DollarSign, Tag, Wallet, Eye } from "lucide-react";
+import { ArrowLeft, BarChart3, Calendar, Download, Edit, Receipt, TrendingUp, Trash2, RotateCcw, Check, Clock, DollarSign, Tag, Wallet, Eye, Search, X } from "lucide-react";
 import { format, startOfDay, startOfWeek, startOfMonth, endOfMonth, getMonth, getYear, setMonth, setYear } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -104,8 +104,10 @@ const SalesHistory = () => {
   
   // Monthly view state
   const [activeTab, setActiveTab] = useState<"quick" | "monthly">("quick");
+  const [topSellingSortBy, setTopSellingSortBy] = useState<"qty" | "revenue">("qty");
   const [selectedMonth, setSelectedMonth] = useState<number>(getMonth(new Date()));
   const [selectedYear, setSelectedYear] = useState<number>(getYear(new Date()));
+  const [receiptSearch, setReceiptSearch] = useState("");
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/auth");
@@ -367,8 +369,15 @@ const SalesHistory = () => {
         return allSales;
     }
 
-    return allSales.filter((s) => new Date(s.createdAt) >= startDate);
-  }, [allSales, period]);
+    const periodFiltered = allSales.filter((s) => new Date(s.createdAt) >= startDate);
+    if (!receiptSearch.trim()) return periodFiltered;
+    const q = receiptSearch.trim().toLowerCase();
+    return periodFiltered.filter((s) =>
+      s.id.toLowerCase().includes(q) ||
+      `INV-${s.id.replace(/-/g, '').slice(-6).toUpperCase()}`.toLowerCase().includes(q) ||
+      s.id.slice(-8).toUpperCase().toLowerCase().includes(q)
+    );
+  }, [allSales, period, receiptSearch]);
 
   const filteredExpenses = useMemo(() => {
     const now = new Date();
@@ -397,11 +406,18 @@ const SalesHistory = () => {
     const monthStart = startOfMonth(targetDate);
     const monthEnd = endOfMonth(targetDate);
     
-    return allSales.filter((s) => {
+    const periodFiltered = allSales.filter((s) => {
       const saleDate = new Date(s.createdAt);
       return saleDate >= monthStart && saleDate <= monthEnd;
     });
-  }, [allSales, selectedMonth, selectedYear]);
+    if (!receiptSearch.trim()) return periodFiltered;
+    const q = receiptSearch.trim().toLowerCase();
+    return periodFiltered.filter((s) =>
+      s.id.toLowerCase().includes(q) ||
+      `INV-${s.id.replace(/-/g, '').slice(-6).toUpperCase()}`.toLowerCase().includes(q) ||
+      s.id.slice(-8).toUpperCase().toLowerCase().includes(q)
+    );
+  }, [allSales, selectedMonth, selectedYear, receiptSearch]);
 
   const monthlyFilteredExpenses = useMemo(() => {
     const targetDate = setYear(setMonth(new Date(), selectedMonth), selectedYear);
@@ -940,10 +956,26 @@ const SalesHistory = () => {
                 <p className="text-xs text-muted-foreground">{isOnline ? "Online" : "Offline (cached data)"}</p>
               </div>
             </div>
+            <div className="flex items-center gap-1">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Receipt..."
+                  value={receiptSearch}
+                  onChange={(e) => setReceiptSearch(e.target.value)}
+                  className="w-[160px] h-8 pl-7 pr-7 text-sm"
+                />
+                {receiptSearch && (
+                  <button onClick={() => setReceiptSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <X className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+                  </button>
+                )}
+              </div>
 
             <Button variant="outline" size="sm" onClick={handleExportCsv}>
               <Download className="h-4 w-4 mr-1" /> CSV
             </Button>
+          </div>
           </div>
         </header>
 
@@ -1041,8 +1073,9 @@ const SalesHistory = () => {
               )}
 
               <Tabs defaultValue="sales" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="sales">Sales</TabsTrigger>
+                  <TabsTrigger value="top">Top Selling</TabsTrigger>
                   <TabsTrigger value="expenses">Expenses</TabsTrigger>
                 </TabsList>
 
@@ -1063,6 +1096,64 @@ const SalesHistory = () => {
                       )}
                     </CardContent>
                   </Card>
+                </TabsContent>
+
+                <TabsContent value="top" className="space-y-4">
+                  {(function TopSelling() {
+                    const aggregated = new Map<string, { qty: number; revenue: number }>();
+                    for (const sale of filteredSales) {
+                      if (sale.status === 'refunded') continue;
+                      for (const item of sale.items) {
+                        const existing = aggregated.get(item.name) || { qty: 0, revenue: 0 };
+                        existing.qty += item.quantity;
+                        existing.revenue += item.quantity * item.price;
+                        aggregated.set(item.name, existing);
+                      }
+                    }
+                    const sorted = [...aggregated.entries()]
+                      .map(([name, data]) => ({ name, qty: data.qty, revenue: data.revenue }))
+                      .sort((a, b) => b.qty - a.qty)
+                      .slice(0, 50);
+                    const display = [...sorted].sort((a, b) => topSellingSortBy === "qty" ? b.qty - a.qty : b.revenue - a.revenue);
+                    return (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <BarChart3 className="h-5 w-5" />
+                            Top Selling Products
+                          </CardTitle>
+                          <CardDescription>
+                            <button className="text-xs text-primary underline mr-3" onClick={() => setTopSellingSortBy("qty")}>
+                              {topSellingSortBy === "qty" ? <b>By Qty</b> : "By Qty"}
+                            </button>
+                            <button className="text-xs text-primary underline" onClick={() => setTopSellingSortBy("revenue")}>
+                              {topSellingSortBy === "revenue" ? <b>By Revenue</b> : "By Revenue"}
+                            </button>
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {display.length === 0 ? (
+                            <p className="text-sm text-muted-foreground py-4 text-center">No sales data in this period.</p>
+                          ) : (
+                            <div className="divide-y divide-border text-sm">
+                              {display.map((item, i) => (
+                                <div key={item.name} className="flex items-center justify-between py-2">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <span className="text-muted-foreground font-mono text-xs w-5 shrink-0">#{i + 1}</span>
+                                    <span className="truncate">{item.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-4 shrink-0 text-xs">
+                                    <span className="font-medium">{item.qty} sold</span>
+                                    <span className="text-muted-foreground">K{item.revenue.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
                 </TabsContent>
 
                 <TabsContent value="expenses" className="space-y-4">
@@ -1219,6 +1310,60 @@ const SalesHistory = () => {
                   ) : (
                     monthlyFilteredSales.map(renderSaleItem)
                   )}
+                </CardContent>
+              </Card>
+
+              {/* Monthly Top Selling */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    Top Selling — {MONTHS[selectedMonth]} {selectedYear}
+                  </CardTitle>
+                  <CardDescription>
+                    <button className="text-xs text-primary underline mr-3" onClick={() => setTopSellingSortBy("qty")}>
+                      {topSellingSortBy === "qty" ? <b>By Qty</b> : "By Qty"}
+                    </button>
+                    <button className="text-xs text-primary underline" onClick={() => setTopSellingSortBy("revenue")}>
+                      {topSellingSortBy === "revenue" ? <b>By Revenue</b> : "By Revenue"}
+                    </button>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {(function() {
+                    const aggregated = new Map<string, { qty: number; revenue: number }>();
+                    for (const sale of monthlyFilteredSales) {
+                      if (sale.status === 'refunded') continue;
+                      for (const item of sale.items) {
+                        const existing = aggregated.get(item.name) || { qty: 0, revenue: 0 };
+                        existing.qty += item.quantity;
+                        existing.revenue += item.quantity * item.price;
+                        aggregated.set(item.name, existing);
+                      }
+                    }
+                    const display = [...aggregated.entries()]
+                      .map(([name, data]) => ({ name, qty: data.qty, revenue: data.revenue }))
+                      .sort((a, b) => topSellingSortBy === "qty" ? b.qty - a.qty : b.revenue - a.revenue)
+                      .slice(0, 50);
+                    return display.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">No sales data in this period.</p>
+                    ) : (
+                      <div className="divide-y divide-border text-sm">
+                        {display.map((item, i) => (
+                          <div key={item.name} className="flex items-center justify-between py-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className="text-muted-foreground font-mono text-xs w-5 shrink-0">#{i + 1}</span>
+                              <span className="truncate">{item.name}</span>
+                            </div>
+                            <div className="flex items-center gap-4 shrink-0 text-xs">
+                              <span className="font-medium">{item.qty} sold</span>
+                              <span className="text-muted-foreground">K{item.revenue.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </CardContent>
               </Card>
 

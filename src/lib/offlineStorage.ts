@@ -72,12 +72,15 @@ interface OfflineProduct {
   stock: number;
   minimumStock: number;
   category: string | null;
+  barcode?: string | null;
   isActive: boolean;
   taxCategory?: 'taxable' | 'zero_rated' | 'exempt';
-  imageUrl?: string | null;        // signed/public URL when available, else storage path
-  imagePath?: string | null;       // raw storage object path (e.g. "{businessId}/{filename}")
+  imageUrl?: string | null;
+  imagePath?: string | null;
   parentId?: string | null;
   variantLabel?: string | null;
+  trackExpiry?: boolean;
+  expiryDate?: string | null;
 }
 
 interface SubscriptionCache {
@@ -612,6 +615,7 @@ interface CachedDebtor {
   status: string;
   notes: string | null;
   createdAt: string;
+  dueDate: string | null;
 }
 
 export const cacheDebtors = async (debtors: CachedDebtor[]): Promise<void> => {

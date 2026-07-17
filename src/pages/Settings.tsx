@@ -532,7 +532,7 @@ const Settings = () => {
 
           {/* Cashiers */}
           {business?.id ? (
-            <CashiersManager businessId={business.id} paymentCode={business.paymentCode} />
+            <CashiersManager businessId={business.id} paymentCode={business.paymentCode} planTier={business.planTier} />
           ) : null}
         </main>
       </div>

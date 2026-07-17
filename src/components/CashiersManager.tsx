@@ -18,14 +18,15 @@ interface Cashier {
   created_at: string;
 }
 
-import { getPricingTier } from '@/lib/paymentDetails';
+import { getPricingTier, getPricingTierByLabel } from '@/lib/paymentDetails';
 
 interface Props {
   businessId: string;
   paymentCode: string;
+  planTier?: string | null;
 }
 
-const CashiersManager = ({ businessId, paymentCode }: Props) => {
+const CashiersManager = ({ businessId, paymentCode, planTier }: Props) => {
   const { toast } = useToast();
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,10 +78,16 @@ const CashiersManager = ({ businessId, paymentCode }: Props) => {
   }, []);
 
   const activeCount = cashiers.filter(c => c.is_active).length;
-  const currentTier = getPricingTier(activeCount);
-  const nextTier = getPricingTier(activeCount + 1);
+
+  const adminTier = planTier ? getPricingTierByLabel(planTier) : null;
+  const cashierCap = adminTier?.maxCashiers ?? null;
+  const atCap = cashierCap !== null && activeCount >= cashierCap;
 
   const handleCreate = async () => {
+    if (atCap) {
+      toast({ variant: 'destructive', title: 'Cashier limit reached', description: `Your plan allows a maximum of ${cashierCap} active cashier${cashierCap === 1 ? '' : 's'}. Contact admin to upgrade.` });
+      return;
+    }
     const username = newUsername.trim().toLowerCase();
     if (!/^[a-z0-9_]{2,20}$/.test(username)) {
       toast({ variant: 'destructive', title: 'Invalid username', description: 'Use 2-20 letters, numbers or underscore.' });
@@ -123,6 +130,10 @@ const CashiersManager = ({ businessId, paymentCode }: Props) => {
   };
 
   const handleToggleActive = async (c: Cashier) => {
+    if (!c.is_active && atCap) {
+      toast({ variant: 'destructive', title: 'Cashier limit reached', description: `Your plan allows a maximum of ${cashierCap} active cashier${cashierCap === 1 ? '' : 's'}. Contact admin to upgrade.` });
+      return;
+    }
     setBusy(true);
     try {
       await callFn({ action: 'set_active', cashier_id: c.id, is_active: !c.is_active });
@@ -158,7 +169,7 @@ const CashiersManager = ({ businessId, paymentCode }: Props) => {
               Cashiers can sell at the till but can't edit products, stock, prices, expenses, debtors or settings.
             </CardDescription>
           </div>
-          <Badge variant="secondary">{activeCount} active · K{currentTier.priceZmw}/mo</Badge>
+          <Badge variant="secondary">{activeCount} active{cashierCap ? ` / ${cashierCap} max` : ''}</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -202,13 +213,7 @@ const CashiersManager = ({ businessId, paymentCode }: Props) => {
           </ul>
         )}
 
-        <div className="rounded-lg border border-dashed border-border p-3 text-xs text-center text-muted-foreground">
-          Current plan: <span className="font-semibold text-foreground">{currentTier.label} — K{currentTier.priceZmw}/mo</span>.
-          {nextTier.priceZmw > currentTier.priceZmw && (
-            <> Adding another cashier moves you to <span className="font-semibold text-foreground">{nextTier.label} (K{nextTier.priceZmw}/mo)</span>.</>
-          )}
-        </div>
-        <Button variant="pos" className="w-full" onClick={() => setCreateOpen(true)} disabled={busy}>
+        <Button variant="pos" className="w-full" onClick={() => setCreateOpen(true)} disabled={busy || atCap}>
           <Plus className="h-4 w-4 mr-1" /> Add Cashier
         </Button>
       </CardContent>
