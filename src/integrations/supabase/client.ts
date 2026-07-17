@@ -42,40 +42,60 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
  *   removeItem → removes `key-{activeUserId}` only (other users untouched)
  */
 function buildMultiAccountStorage(): Storage {
+  const ls = (() => {
+    try { return localStorage; } catch { return null; }
+  })();
+  const ss = (() => {
+    try { return sessionStorage; } catch { return null; }
+  })();
   const ACTIVE_USER_KEY = 'zampos_active_user';
 
   const getActiveUserId = (): string | null => {
-    try { return sessionStorage.getItem(ACTIVE_USER_KEY); } catch { return null; }
+    if (!ss) return null;
+    try { return ss.getItem(ACTIVE_USER_KEY); } catch { return null; }
   };
   const setActiveUserId = (id: string) => {
-    try { sessionStorage.setItem(ACTIVE_USER_KEY, id); } catch { /* noop */ }
+    if (!ss) return;
+    try { ss.setItem(ACTIVE_USER_KEY, id); } catch { /* noop */ }
+  };
+
+  const lGet = (k: string): string | null => {
+    if (!ls) return null;
+    try { return ls.getItem(k); } catch { return null; }
+  };
+  const lSet = (k: string, v: string) => {
+    if (!ls) return;
+    try { ls.setItem(k, v); } catch { /* noop */ }
+  };
+  const lRemove = (k: string) => {
+    if (!ls) return;
+    try { ls.removeItem(k); } catch { /* noop */ }
   };
 
   return {
-    get length() { return localStorage.length; },
-    clear() { localStorage.clear(); },
-    key(index: number) { return localStorage.key(index); },
+    get length() { return ls ? ls.length : 0; },
+    clear() { if (ls) try { ls.clear(); } catch { /* noop */ } },
+    key(index: number) { return ls ? ls.key(index) : null; },
 
     getItem(key: string): string | null {
-      // Non-auth keys pass through directly
-      if (!key.includes('auth-token')) return localStorage.getItem(key);
+      if (!key.includes('auth-token')) return lGet(key);
 
       // 1) Active user's specific key
       const activeId = getActiveUserId();
       if (activeId) {
-        const val = localStorage.getItem(`${key}-${activeId}`);
+        const val = lGet(`${key}-${activeId}`);
         if (val) return val;
       }
 
       // 2) Legacy unprefixed key – migrate on first read
-      const legacy = localStorage.getItem(key);
+      const legacy = lGet(key);
       if (legacy) {
         try {
           const session = JSON.parse(legacy);
           const uid: string | undefined = session?.user?.id ?? session?.user?.sub;
           if (uid) {
-            localStorage.setItem(`${key}-${uid}`, legacy);
-            localStorage.removeItem(key);
+            lSet(`${key}-${uid}`, legacy);
+            lRemove(key);
             setActiveUserId(uid);
           }
         } catch { /* ignore parse errors */ }
@@ -83,50 +103,43 @@ function buildMultiAccountStorage(): Storage {
       }
 
       // 3) Scan for any existing user-specific key
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k?.startsWith(key + '-')) {
-          const val = localStorage.getItem(k);
-          if (val) {
-            setActiveUserId(k.slice(key.length + 1));
-            return val;
+      if (ls) {
+        try {
+          for (let i = 0; i < ls.length; i++) {
+            const k = ls.key(i);
+            if (k?.startsWith(key + '-')) {
+              const val = lGet(k);
+              if (val) {
+                setActiveUserId(k.slice(key.length + 1));
+                return val;
+              }
+            }
           }
-        }
+        } catch { /* ignore */ }
       }
 
       return null;
     },
 
     setItem(key: string, value: string): void {
-      // Non-auth keys pass through directly
-      if (!key.includes('auth-token')) {
-        localStorage.setItem(key, value);
-        return;
-      }
+      if (!key.includes('auth-token')) { lSet(key, value); return; }
       try {
         const session = JSON.parse(value);
         const userId: string | undefined = session?.user?.id ?? session?.user?.sub;
         if (userId) {
-          localStorage.setItem(`${key}-${userId}`, value);
+          lSet(`${key}-${userId}`, value);
           setActiveUserId(userId);
           return;
         }
       } catch { /* fall through to unprefixed */ }
-      localStorage.setItem(key, value);
+      lSet(key, value);
     },
 
     removeItem(key: string): void {
-      // Non-auth keys pass through directly
-      if (!key.includes('auth-token')) {
-        localStorage.removeItem(key);
-        return;
-      }
+      if (!key.includes('auth-token')) { lRemove(key); return; }
       const activeId = getActiveUserId();
-      if (activeId) {
-        localStorage.removeItem(`${key}-${activeId}`);
-        return;
-      }
-      localStorage.removeItem(key);
+      if (activeId) { lRemove(`${key}-${activeId}`); return; }
+      lRemove(key);
     },
   };
 }

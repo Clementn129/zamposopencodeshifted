@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => ({
   // Use relative base for Electron (file://) builds: ELECTRON=1 npm run build
   base: process.env.ELECTRON === "1" ? "./" : "/",
   esbuild: mode === "production"
-    ? { drop: ["console", "debugger"], pure: ["console.log", "console.debug", "console.info"] }
+    ? { pure: ["console.log", "console.debug", "console.info"] }
     : undefined,
   server: {
     host: "::",

@@ -31,6 +31,22 @@
 
   <body>
     <div id="root"></div>
+    <script>
+      window.__onFatalError = function (err) {
+        var root = document.getElementById("root");
+        if (!root) return;
+        root.innerHTML =
+          '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0F172A;padding:24px">' +
+          '<div style="max-width:480px;background:#1E293B;border:1px solid #334155;border-radius:12px;padding:24px;color:#F8FAFC;font-family:sans-serif">' +
+          '<h1 style="font-size:20px;margin:0 0 8px">Something went wrong</h1>' +
+          '<p style="color:#94A3B8;font-size:14px;margin:0 0 12px">' + (err && err.message ? err.message : "Unknown error") + '</p>' +
+          '<pre style="background:#0F172A;padding:12px;border-radius:6px;font-size:12px;overflow:auto;max-height:200px;color:#E2E8F0">' + (err && err.stack ? err.stack : "") + '</pre>' +
+          '<button onclick="location.reload()" style="margin-top:16px;padding:8px 16px;background:#0D9488;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">Reload</button>' +
+          '</div></div>';
+      };
+      window.addEventListener("error", function (e) { window.__onFatalError(e.error || e); });
+      window.addEventListener("unhandledrejection", function (e) { window.__onFatalError(e.reason); });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
