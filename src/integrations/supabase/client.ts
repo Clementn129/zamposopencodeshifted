@@ -2,8 +2,8 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://gglhrfogvwnrgyvlixjq.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdnbGhyZm9ndnducmd5dmxpeGpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NDA4ODgsImV4cCI6MjA5OTAxNjg4OH0.PYHVGEad_x7gpQZby6vaIfVUTb55qeRLIeFtptHLoXU';
 
 
 function isNewSupabaseApiKey(value: string): boolean {
