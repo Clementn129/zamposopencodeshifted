@@ -32,7 +32,7 @@ interface QuotationTabProps {
 
 const QuotationTab = ({ businessId, businessName, businessDetails, products, isService, onConvertToSale }: QuotationTabProps) => {
   const { toast } = useToast();
-  const { quotations, isLoading, createQuotation, updateQuotation, softDeleteQuotation, getQuotationWithItems, markConverted } = useQuotations(businessId);
+  const { quotations, isLoading, createQuotation, updateQuotation, softDeleteQuotation, getQuotationWithItems } = useQuotations(businessId);
   const [view, setView] = useState<View>('list');
   const [activeQuotation, setActiveQuotation] = useState<Quotation | null>(null);
   const [convertId, setConvertId] = useState<string | null>(null);
@@ -101,8 +101,8 @@ const QuotationTab = ({ businessId, businessName, businessDetails, products, isS
         q.discountType,
         q.discountValue
       );
-      // Mark quotation as converted with null (not empty string to avoid invalid UUID error)
-      await markConverted(convertId, null);
+      // Don't mark as converted here — the sale hasn't completed yet.
+      // markConverted happens after the sale is actually saved in Pos.tsx
       toast({ title: 'Quotation loaded into cart', description: 'Complete the sale to deduct stock.' });
       setConvertId(null);
     } catch (e: any) {

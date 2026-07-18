@@ -217,13 +217,13 @@ const addToCart = async (productId: string) => {
     const existing = cart.find((l) => l.productId === productId);
     if (!existing) return;
     if (existing.quantity <= 1) {
-      setCart(cart.filter((l) => l.productId !== productId));
+      setCart(prev => prev.filter((l) => l.productId !== productId));
       await removeCartItem(productId);
       return;
     }
     const nextQty = existing.quantity - 1;
     const updated = { ...existing, quantity: nextQty };
-    setCart(cart.map((l) => (l.productId === productId ? updated : l)));
+    setCart(prev => prev.map((l) => (l.productId === productId ? updated : l)));
     await saveCartItem(updated);
   };
 
@@ -231,7 +231,7 @@ const addToCart = async (productId: string) => {
     const existing = cart.find((l) => l.productId === productId);
     if (!existing) return;
     const updated = { ...existing, discountType: type, discountValue: value };
-    setCart(cart.map((l) => (l.productId === productId ? updated : l)));
+    setCart(prev => prev.map((l) => (l.productId === productId ? updated : l)));
     await saveCartItem(updated);
   };
 
@@ -239,7 +239,7 @@ const addToCart = async (productId: string) => {
     const existing = cart.find((l) => l.productId === productId);
     if (!existing) return;
     const updated = { ...existing, notes };
-    setCart(cart.map((l) => (l.productId === productId ? updated : l)));
+    setCart(prev => prev.map((l) => (l.productId === productId ? updated : l)));
     await saveCartItem(updated);
   };
 
@@ -625,7 +625,7 @@ const addToCart = async (productId: string) => {
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="flex items-center gap-3 min-w-0">
                                     {p.imageUrl ? (
-                                      <img src={p.imageUrl} alt={displayName} className="h-10 w-10 rounded object-cover shrink-0" loading="lazy" onError={async (e) => { if (!p.imagePath) return; try { const blob = await getCachedImageBlob(p.imagePath); if (blob) (e.target as HTMLImageElement).src = URL.createObjectURL(blob); } catch {} }} />
+                                      <img src={p.imageUrl} alt={displayName} className="h-10 w-10 rounded object-cover shrink-0" loading="lazy" onError={async (e) => { if (!p.imagePath) return; try { const blob = await getCachedImageBlob(p.imagePath); if (blob) (e.target as HTMLImageElement).src = URL.createObjectURL(blob); } catch { /* blob fetch failed, keep broken image */ } }} />
                                     ) : (
                                       <div className="h-10 w-10 rounded bg-muted shrink-0" />
                                     )}
@@ -662,7 +662,7 @@ const addToCart = async (productId: string) => {
                           <div className="flex gap-1">
                             <Button variant="outline" size="icon" onClick={() => decQty(l.productId)}><Minus className="h-4 w-4" /></Button>
                             <Button variant="outline" size="icon" onClick={() => addToCart(l.productId)}><Plus className="h-4 w-4" /></Button>
-                            <Button variant="outline" size="icon" onClick={async () => { setCart(cart.filter((x) => x.productId !== l.productId)); await removeCartItem(l.productId); }}><Trash2 className="h-4 w-4" /></Button>
+                            <Button variant="outline" size="icon" onClick={async () => { setCart(prev => prev.filter((x) => x.productId !== l.productId)); await removeCartItem(l.productId); }}><Trash2 className="h-4 w-4" /></Button>
                           </div>
                         </div>
                         {/* Item discount */}

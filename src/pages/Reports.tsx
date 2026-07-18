@@ -66,7 +66,7 @@ const Reports = () => {
           const t = new Date(e.expense_date).getTime();
           return t >= from && t <= to;
         }));
-        setDebtors(cachedDebtors.map(d => ({ id: d.id, balance_due: d.amountOwed - d.amountPaid, status: d.status })));
+        setDebtors(cachedDebtors.map(d => ({ id: d.id, amount_owed: d.amountOwed, amount_paid: d.amountPaid, balance_due: d.amountOwed - d.amountPaid, status: d.status })));
         toast({ title: "Offline data", description: "Showing cached report data." });
         return;
       }

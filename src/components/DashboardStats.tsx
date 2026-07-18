@@ -67,7 +67,7 @@ const DashboardStats = ({ businessId, isService }: DashboardStatsProps) => {
       });
 
       const businessExpensesToday = todaysExpenses
-        .filter((e) => e.category === 'business')
+        .filter((e) => (e.category ?? 'business') === 'business')
         .reduce((sum, e) => sum + e.amount, 0);
       const ownerDrawingsToday = todaysExpenses
         .filter((e) => e.category === 'personal')

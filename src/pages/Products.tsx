@@ -848,7 +848,7 @@ const Products = () => {
                                     src={p.imageUrl}
                                     alt={p.name}
                                     className="h-12 w-12 rounded object-cover shrink-0"
-                                    onError={async (e) => { if (!p.imagePath) return; try { const blob = await getCachedImageBlob(p.imagePath); if (blob) (e.target as HTMLImageElement).src = URL.createObjectURL(blob); } catch {} }}
+                                    onError={async (e) => { if (!p.imagePath) return; try { const blob = await getCachedImageBlob(p.imagePath); if (blob) (e.target as HTMLImageElement).src = URL.createObjectURL(blob); } catch { /* blob fetch failed */ } }}
                                   />
                                 ) : (
                                   <div className="h-12 w-12 rounded bg-muted flex items-center justify-center shrink-0">

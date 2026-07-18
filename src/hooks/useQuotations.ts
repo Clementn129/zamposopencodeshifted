@@ -211,6 +211,7 @@ export function useQuotations(businessId: string | undefined) {
     q: Partial<Quotation>,
     items?: QuotationItem[]
   ) => {
+    if (!businessId) return;
     const updateData: any = {};
     if (q.customerName !== undefined) updateData.customer_name = q.customerName;
     if (q.customerPhone !== undefined) updateData.customer_phone = q.customerPhone;
@@ -229,7 +230,7 @@ export function useQuotations(businessId: string | undefined) {
     if (!isOnline) {
       await queuePendingOp({
         id: generateOfflineId(),
-        businessId: businessId!,
+        businessId: businessId,
         type: 'quotation_update',
         payload: { id, header: updateData, items: items || [] },
         createdAt: new Date().toISOString(),
@@ -264,10 +265,11 @@ export function useQuotations(businessId: string | undefined) {
   };
 
   const softDeleteQuotation = async (id: string) => {
+    if (!businessId) return;
     if (!isOnline) {
       await queuePendingOp({
         id: generateOfflineId(),
-        businessId: businessId!,
+        businessId: businessId,
         type: 'quotation_delete',
         payload: { id },
         createdAt: new Date().toISOString(),
