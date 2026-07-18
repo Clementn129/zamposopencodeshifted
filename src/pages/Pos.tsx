@@ -20,7 +20,7 @@ import { useBusiness } from "@/hooks/useBusiness";
 import { useProducts } from "@/hooks/useProducts";
 import { useSalesSync } from "@/hooks/useSalesSync";
 import { useBusinessType } from "@/hooks/useBusinessType";
-import { saveOfflineSale, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem, queuePendingOp, getCachedDebtors, cacheDebtors } from "@/lib/offlineStorage";
+import { saveOfflineSale, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem, queuePendingOp, getCachedDebtors, cacheDebtors, getCachedImageBlob } from "@/lib/offlineStorage";
 import { calculateTax, TaxCategory } from "@/lib/tax";
 import { supabase } from "@/integrations/supabase/client";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -625,7 +625,7 @@ const addToCart = async (productId: string) => {
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="flex items-center gap-3 min-w-0">
                                     {p.imageUrl ? (
-                                      <img src={p.imageUrl} alt={displayName} className="h-10 w-10 rounded object-cover shrink-0" loading="lazy" />
+                                      <img src={p.imageUrl} alt={displayName} className="h-10 w-10 rounded object-cover shrink-0" loading="lazy" onError={async (e) => { if (!p.imagePath) return; try { const blob = await getCachedImageBlob(p.imagePath); if (blob) (e.target as HTMLImageElement).src = URL.createObjectURL(blob); } catch {} }} />
                                     ) : (
                                       <div className="h-10 w-10 rounded bg-muted shrink-0" />
                                     )}

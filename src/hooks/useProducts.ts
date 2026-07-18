@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { cacheProducts, getCachedProducts, getUnsyncedSales, getUnsyncedStockUpdates, cacheProductImageBlob, getCachedImageBlob, getPendingOps } from "@/lib/offlineStorage";
+import { cacheProducts, getCachedProducts, getUnsyncedSales, getUnsyncedStockUpdates, cacheProductImageBlob, getCachedImageBlob, getCachedImageBlobWithAge, getPendingOps } from "@/lib/offlineStorage";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -81,6 +81,7 @@ const mapCachedProduct = (p: CachedProduct): Product => ({
 // purposes — the workspace blocks public buckets, so this is the longest-lived
 // option without exposing the bucket.
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 365; // ~1 year
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PAGE_SIZE = 100;
 
@@ -128,8 +129,8 @@ const CONCURRENT_BLOB_DOWNLOADS = 3;
 
 const downloadImageBlob = async (path: string, signedUrl: string): Promise<void> => {
   try {
-    const existing = await getCachedImageBlob(path);
-    if (existing) return;
+    const cached = await getCachedImageBlobWithAge(path);
+    if (cached && (Date.now() - new Date(cached.cachedAt).getTime() < CACHE_MAX_AGE_MS)) return;
     const response = await fetch(signedUrl);
     if (!response.ok) return;
     const blob = await response.blob();
@@ -137,6 +138,27 @@ const downloadImageBlob = async (path: string, signedUrl: string): Promise<void>
   } catch {
     // skip silently — image will fall back to signed URL next time
   }
+};
+
+// Resolve cached image blobs to object URLs for instant display (no network needed)
+const resolveCachedBlobs = async (products: Product[], blobUrlsRef: React.MutableRefObject<string[]>): Promise<{ products: Product[]; hasBlobs: boolean }> => {
+  let hasBlobs = false;
+  const resolved = await Promise.all(
+    products.map(async (p) => {
+      if (!p.imagePath) return p;
+      try {
+        const blob = await getCachedImageBlob(p.imagePath);
+        if (!blob) return p;
+        hasBlobs = true;
+        const url = URL.createObjectURL(blob);
+        blobUrlsRef.current.push(url);
+        return { ...p, imageUrl: url };
+      } catch {
+        return p;
+      }
+    })
+  );
+  return { products: resolved, hasBlobs };
 };
 
 const backgroundCacheImageBlobs = (products: Product[]): void => {
@@ -263,10 +285,16 @@ export function useProducts(businessId: string | undefined) {
 
         const mapped = (data ?? []).map(mapRowToProduct);
         // Render immediately without image URLs so 20k+ catalogs paint fast;
-        // signed URLs resolve in the background and swap in when ready.
+        // cached blobs and signed URLs resolve in the background.
         setProducts(mapped);
         setIsLoading(false);
 
+        // Fire cached blob loading instantly (IndexedDB read, no network)
+        resolveCachedBlobs(mapped, blobUrlsRef).then(({ products, hasBlobs }) => {
+          if (hasBlobs) setProducts(products);
+        });
+
+        // Resolve signed URLs (network) — always wins for freshest image
         const withUrls = await resolveImageUrls(mapped);
         setProducts(withUrls);
 
@@ -300,25 +328,9 @@ export function useProducts(businessId: string | undefined) {
         setProducts(mapped);
 
         // Resolve cached image blobs to object URLs for offline viewing
-        if (mapped.some(p => p.imagePath)) {
-          (async () => {
-            const resolved = await Promise.all(
-              mapped.map(async (p) => {
-                if (!p.imagePath) return p;
-                try {
-                  const blob = await getCachedImageBlob(p.imagePath);
-                  if (!blob) return p;
-                  const url = URL.createObjectURL(blob);
-                  blobUrlsRef.current.push(url);
-                  return { ...p, imageUrl: url };
-                } catch {
-                  return p;
-                }
-              })
-            );
-            setProducts(resolved);
-          })();
-        }
+        resolveCachedBlobs(mapped, blobUrlsRef).then(({ products, hasBlobs }) => {
+          if (hasBlobs) setProducts(products);
+        });
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to load products";

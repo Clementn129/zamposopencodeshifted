@@ -1034,6 +1034,24 @@ export const getCachedImageBlob = async (path: string): Promise<Blob | null> => 
   });
 };
 
+export const getCachedImageBlobWithAge = async (path: string): Promise<{ blob: Blob; cachedAt: string } | null> => {
+  const db = await getDB();
+  return new Promise((resolve) => {
+    const transaction = db.transaction(['productImageBlobs'], 'readonly');
+    const store = transaction.objectStore('productImageBlobs');
+    const request = store.get(path);
+    request.onsuccess = () => {
+      const result = request.result;
+      if (result?.blob && result?.cachedAt) {
+        resolve({ blob: result.blob, cachedAt: result.cachedAt });
+      } else {
+        resolve(null);
+      }
+    };
+    request.onerror = () => resolve(null);
+  });
+};
+
 export const removeCachedImageBlob = async (path: string): Promise<void> => {
   const db = await getDB();
   return new Promise((resolve, reject) => {

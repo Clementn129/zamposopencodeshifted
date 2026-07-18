@@ -56,6 +56,7 @@ import {
   storePendingImageUpload,
   removePendingImageUpload,
   cacheProductImageBlob,
+  getCachedImageBlob,
 } from "@/lib/offlineStorage";
 
 const NEW_CAT_VALUE = "__new__";
@@ -847,6 +848,7 @@ const Products = () => {
                                     src={p.imageUrl}
                                     alt={p.name}
                                     className="h-12 w-12 rounded object-cover shrink-0"
+                                    onError={async (e) => { if (!p.imagePath) return; try { const blob = await getCachedImageBlob(p.imagePath); if (blob) (e.target as HTMLImageElement).src = URL.createObjectURL(blob); } catch {} }}
                                   />
                                 ) : (
                                   <div className="h-12 w-12 rounded bg-muted flex items-center justify-center shrink-0">
