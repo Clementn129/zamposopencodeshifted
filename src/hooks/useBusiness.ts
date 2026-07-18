@@ -198,8 +198,6 @@ export const useBusiness = (userId: string | undefined) => {
         return;
       }
 
-      cacheServerTime(new Date());
-
       const wasUpdated = await updateSubscriptionStatusInDB(
         data.id,
         data.subscription_status,
@@ -213,9 +211,18 @@ export const useBusiness = (userId: string | undefined) => {
       setBusiness(mapBusinessRow(row));
       await persistBusinessCache(row);
 
-      // Fire-and-forget: stamp last_sync_at for admin dashboard visibility.
-      // The realtime subscription below ignores this column, so no loop.
-      supabase.from('businesses').update({ last_sync_at: new Date().toISOString() }).eq('id', data.id).then(() => {}).catch(() => {});
+      // Stamp last_sync_at and capture server time for anti-tamper
+      const { data: touched } = await supabase
+        .from('businesses')
+        .update({ last_sync_at: new Date().toISOString() })
+        .eq('id', data.id)
+        .select('updated_at')
+        .single()
+        .catch(() => ({ data: null }));
+      const serverTime = touched?.updated_at
+        ? new Date(touched.updated_at + 'Z')
+        : new Date(data.updated_at ?? new Date().toISOString());
+      cacheServerTime(serverTime);
     } catch (err: unknown) {
       console.error('Error fetching business:', err);
       const msg = err instanceof Error ? err.message : 'Failed to load business data';

@@ -118,6 +118,14 @@ const Auth = () => {
     }
   };
 
+  const internalEmail = (businessId: string, username: string) => {
+    const short = businessId.replace(/-/g, "").slice(0, 12);
+    const u = username.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return `c-${short}-${u}@zampos.local`;
+  };
+
+  const pinPassword = (pin: string) => `zampos-${pin}`;
+
   const handleCashierLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cashierCode.trim() || !cashierUsername.trim() || !cashierPin.trim()) {
@@ -130,19 +138,35 @@ const Auth = () => {
     }
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('manage-cashier', {
-        body: {
-          action: 'cashier_login',
-          code: cashierCode.trim().toUpperCase(),
-          username: cashierUsername.trim().toLowerCase(),
-          pin: cashierPin,
-        },
-      });
-      if (error) {
-        throw new Error(error.message || 'Login failed');
-      }
-      const { email, password } = (data ?? {}) as { email?: string; password?: string };
-      if (!email || !password) throw new Error('Invalid response from server');
+      const code = cashierCode.trim().toUpperCase();
+      const username = cashierUsername.trim().toLowerCase();
+
+      // Look up business by payment code
+      const { data: bizRow, error: bizErr } = await supabase
+        .from("businesses")
+        .select("id")
+        .eq("payment_code", code)
+        .maybeSingle();
+      if (bizErr || !bizRow) throw new Error("Invalid business code");
+
+      // Verify cashier exists and is active
+      const { data: cashier, error: cashierErr } = await supabase
+        .from("business_cashiers")
+        .select("id, is_active")
+        .eq("business_id", bizRow.id)
+        .eq("username", username)
+        .maybeSingle();
+      if (cashierErr || !cashier) throw new Error("Cashier not found");
+      if (!cashier.is_active) throw new Error("Cashier account is disabled");
+
+      // Stamp last_login_at
+      await supabase
+        .from("business_cashiers")
+        .update({ last_login_at: new Date().toISOString() })
+        .eq("id", cashier.id);
+
+      const email = internalEmail(bizRow.id, username);
+      const password = pinPassword(cashierPin);
 
       const { error: signInErr } = await signIn(email, password);
       if (signInErr) throw signInErr;

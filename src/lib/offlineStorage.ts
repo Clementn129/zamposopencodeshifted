@@ -462,8 +462,8 @@ export const getLastServerSync = (): Date | null => {
 export const isOfflineTooLong = (maxDays: number = 35): boolean => {
   const lastSync = getLastServerSync();
   if (!lastSync) return false;
-  
-  const now = new Date();
+
+  const now = getAdjustedTime();
   const diffDays = (now.getTime() - lastSync.getTime()) / (1000 * 60 * 60 * 24);
   return diffDays > maxDays;
 };
@@ -980,35 +980,6 @@ export const updatePendingOpRetry = async (opId: string, retryCount: number, las
     };
     getRequest.onerror = () => reject(getRequest.error);
   });
-};
-
-export const processPendingOps = async (businessId: string): Promise<void> => {
-  const ops = await getPendingOps(businessId);
-  for (const op of ops) {
-    try {
-      switch (op.type) {
-        case 'product_create':
-          // Product create ops are handled by usePendingOpsSync which syncs to Supabase
-          // Mark as processed so they don't accumulate
-          break;
-        case 'product_update':
-          // Product update ops are handled by usePendingOpsSync which syncs to Supabase
-          break;
-        case 'product_deactivate':
-          // Product deactivate ops are handled by usePendingOpsSync which syncs to Supabase
-          break;
-        case 'debtor_create':
-          // Debtor create ops are handled by usePendingOpsSync which syncs to Supabase
-          break;
-        case 'debtor_payment':
-          // Debtor payment ops are handled by usePendingOpsSync which syncs to Supabase
-          break;
-      }
-      await removePendingOp(op.id);
-    } catch (e) {
-      console.error(`Failed to process pending op ${op.id}:`, e);
-    }
-  }
 };
 
 // Product image blob cache (download image bytes for offline viewing)

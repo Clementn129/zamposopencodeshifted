@@ -256,21 +256,21 @@ export function useProducts(businessId: string | undefined) {
 
     setError(null);
 
-    // Step 1: Always load cached products immediately (no network needed)
+    // Show cached products immediately for instant display
     const cached = await getCachedProducts(businessId);
     if (cached.length > 0) {
-      const mapped = cached.map(mapCachedProduct);
-      setProducts(mapped);
+      const cachedMapped = cached.map(mapCachedProduct);
+      setProducts(cachedMapped);
       setIsLoading(false);
-      // Resolve cached image blobs for instant images
-      resolveCachedBlobs(mapped, blobUrlsRef).then(({ products, hasBlobs }) => {
-        if (hasBlobs) setProducts(products);
+      // Add cached images in a second pass (fast, local)
+      resolveCachedBlobs(cachedMapped, blobUrlsRef).then(({ products: withBlobs, hasBlobs }) => {
+        if (hasBlobs) setProducts(withBlobs);
       });
     } else {
       setIsLoading(true);
     }
 
-    // Step 2: If online, fetch fresh data from network in background
+    // If online, fetch fresh data and apply in ONE update
     if (isOnlineRef.current) {
       try {
         const [unsyncedSales, unsyncedStockUpdates, pendingOps] = await Promise.all([
@@ -281,14 +281,13 @@ export function useProducts(businessId: string | undefined) {
 
         const hasPendingProductOps = pendingOps.some(op => op.type.startsWith('product_'));
         if (unsyncedSales.length > 0 || unsyncedStockUpdates.length > 0 || hasPendingProductOps) {
-          // Pending offline changes — keep showing cached data for consistency
           if (cached.length === 0) {
             const retryCached = await getCachedProducts(businessId);
             if (retryCached.length > 0) {
-              const mapped = retryCached.map(mapCachedProduct);
-              setProducts(mapped);
-              resolveCachedBlobs(mapped, blobUrlsRef).then(({ products, hasBlobs }) => {
-                if (hasBlobs) setProducts(products);
+              const rcm = retryCached.map(mapCachedProduct);
+              setProducts(rcm);
+              resolveCachedBlobs(rcm, blobUrlsRef).then(({ products: wb, hasBlobs: hb }) => {
+                if (hb) setProducts(wb);
               });
             }
             setIsLoading(false);
@@ -306,17 +305,11 @@ export function useProducts(businessId: string | undefined) {
         if (fetchError) throw fetchError;
 
         const mapped = (data ?? []).map(mapRowToProduct);
-        setProducts(mapped);
-        setIsLoading(false);
 
-        // Fire cached blob loading (fast, local)
-        resolveCachedBlobs(mapped, blobUrlsRef).then(({ products, hasBlobs }) => {
-          if (hasBlobs) setProducts(products);
-        });
-
-        // Resolve signed URLs (network) — freshest images
+        // Resolve signed URLs (network) before updating state — single render
         const withUrls = await resolveImageUrls(mapped);
         setProducts(withUrls);
+        setIsLoading(false);
 
         backgroundCacheImageBlobs(withUrls);
 
@@ -343,7 +336,6 @@ export function useProducts(businessId: string | undefined) {
           }) as any)
         );
       } catch (e: unknown) {
-        // Network failed — cached data is already showing
         if (cached.length === 0) {
           const msg = e instanceof Error ? e.message : "Failed to load products";
           try {
@@ -357,7 +349,6 @@ export function useProducts(businessId: string | undefined) {
         }
       }
     } else if (cached.length === 0) {
-      // Offline and no cache
       setError("No internet connection and no cached products");
       setIsLoading(false);
     }
