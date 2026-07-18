@@ -485,8 +485,8 @@ const addToCart = async (productId: string) => {
   };
 
   // Handle converting a quotation to a sale — loads items into the cart
-  const handleConvertQuotation = (
-    items: Array<{ productId: string; name: string; price: number; quantity: number; discountType?: string | null; discountValue?: number }>,
+  const handleConvertQuotation = async (
+    items: Array<{ productId: string; name: string; price: number; quantity: number; discountType?: string | null; discountValue?: number; notes?: string; costPrice?: number | null; taxCategory?: string }>,
     discType: string | null,
     discValue: number
   ) => {
@@ -497,8 +497,15 @@ const addToCart = async (productId: string) => {
       quantity: i.quantity,
       discountType: (i.discountType as CartLine['discountType']) || null,
       discountValue: i.discountValue || 0,
+      notes: i.notes,
+      costPrice: i.costPrice,
+      taxCategory: (i.taxCategory as TaxCategory) || 'taxable',
     }));
     setCart(cartLines);
+    // Persist each cart line to IndexedDB so cart survives page refresh
+    for (const line of cartLines) {
+      await saveCartItem(line);
+    }
     if (discType) {
       setSaleDiscountType(discType as 'percentage' | 'amount');
       setSaleDiscountValue(discValue.toString());
@@ -655,7 +662,7 @@ const addToCart = async (productId: string) => {
                           <div className="flex gap-1">
                             <Button variant="outline" size="icon" onClick={() => decQty(l.productId)}><Minus className="h-4 w-4" /></Button>
                             <Button variant="outline" size="icon" onClick={() => addToCart(l.productId)}><Plus className="h-4 w-4" /></Button>
-                            <Button variant="outline" size="icon" onClick={() => { setCart(cart.filter((x) => x.productId !== l.productId)); removeCartItem(l.productId); }}><Trash2 className="h-4 w-4" /></Button>
+                            <Button variant="outline" size="icon" onClick={async () => { setCart(cart.filter((x) => x.productId !== l.productId)); await removeCartItem(l.productId); }}><Trash2 className="h-4 w-4" /></Button>
                           </div>
                         </div>
                         {/* Item discount */}

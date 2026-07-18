@@ -101,12 +101,22 @@ interface CachedBusiness {
   phone: string | null;
   email: string | null;
   address: string | null;
+  taxMode?: 'none' | 'vat' | 'custom';
+  vatRate?: number;
+  customTaxName?: string | null;
+  customTaxRate?: number | null;
+  tpin?: string | null;
+  logoUrl?: string | null;
+  vatNumber?: string | null;
 }
 
 let dbInstance: IDBDatabase | null = null;
 
 // Maximum number of retries for database operations
 const MAX_DB_RETRIES = 3;
+
+// Maximum retries for pending operation sync before marking permanently failed
+const MAX_RETRIES = 5;
 
 // Initialize IndexedDB with safe version handling
 export const initDB = (): Promise<IDBDatabase> => {

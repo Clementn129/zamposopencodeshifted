@@ -189,8 +189,14 @@ export const useAuth = () => {
   };
 
   const signOut = async () => {
+    // Eagerly clear local state before the async call to prevent redirect race
+    applySession(null, undefined);
     const { error } = await supabase.auth.signOut();
-    return { error };
+    if (error) {
+      // If signOut API fails, restore the session (it wasn't actually cleared server-side)
+      return { error };
+    }
+    return { error: null };
   };
 
   return {

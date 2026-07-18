@@ -104,7 +104,7 @@ const LockScreen = ({ paymentCode, businessId, daysExpired = 0, onRetrySync, isS
             </div>
             <CardTitle className="text-lg text-destructive">Subscription Expired</CardTitle>
             <CardDescription className="text-sm">
-              {daysExpired > 0 ? `Your subscription expired ${daysExpired} days ago` : 'Your trial has ended. Renew to continue using ZamPOS.'}
+              Your subscription has expired. Renew to continue using ZamPOS.
             </CardDescription>
           </CardHeader>
 
@@ -113,7 +113,15 @@ const LockScreen = ({ paymentCode, businessId, daysExpired = 0, onRetrySync, isS
               Reference: <span className="font-mono font-semibold">{paymentCode}</span>
             </div>
 
-            {isCustom ? (
+            {isCashier ? (
+              <div className="bg-muted/50 rounded-lg p-6 text-center space-y-3">
+                <p className="text-sm text-muted-foreground">Your subscription has expired. Please contact the business owner to renew.</p>
+                <Button variant="outline" className="w-full" onClick={async () => { setChecking(true); try { await onRetrySync(); } finally { setChecking(false); } }} disabled={isSyncing || checking}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${(isSyncing || checking) ? 'animate-spin' : ''}`} />
+                  {(isSyncing || checking) ? 'Checking...' : 'Check Status'}
+                </Button>
+              </div>
+            ) : isCustom ? (
               <div className="bg-muted/50 rounded-lg p-4 text-center space-y-2">
                 <p className="text-sm text-muted-foreground">Custom pricing — contact admin for your renewal amount.</p>
               </div>
@@ -139,7 +147,7 @@ const LockScreen = ({ paymentCode, businessId, daysExpired = 0, onRetrySync, isS
               <p className="text-2xl font-display font-bold text-primary">ZMW {amountZmw}</p>
             </div></>
             )}
-            {isCustom ? (
+            {isCashier ? null : isCustom ? (
               <div className="flex flex-col items-center gap-3 py-4">
                 <p className="text-sm text-muted-foreground text-center">Contact admin to set up your custom plan.</p>
                 <div className="bg-secondary rounded-lg p-3 space-y-2">

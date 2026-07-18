@@ -83,6 +83,13 @@ export const useBusiness = (userId: string | undefined) => {
       phone: row.phone,
       email: row.email,
       address: row.address,
+      taxMode: (row.tax_mode ?? 'none') as Business['taxMode'],
+      vatRate: Number(row.vat_rate ?? 16),
+      customTaxName: row.custom_tax_name,
+      customTaxRate: row.custom_tax_rate != null ? Number(row.custom_tax_rate) : null,
+      tpin: row.tpin,
+      logoUrl: row.logo_url,
+      vatNumber: row.vat_number,
     });
   }, []);
 
@@ -104,8 +111,13 @@ export const useBusiness = (userId: string | undefined) => {
         phone: cachedBiz.phone,
         email: cachedBiz.email,
         address: cachedBiz.address,
-        taxMode: 'none',
-        vatRate: 16,
+        taxMode: (cachedBiz.taxMode ?? 'none') as Business['taxMode'],
+        vatRate: cachedBiz.vatRate ?? 16,
+        customTaxName: cachedBiz.customTaxName ?? null,
+        customTaxRate: cachedBiz.customTaxRate ?? null,
+        tpin: cachedBiz.tpin ?? null,
+        logoUrl: cachedBiz.logoUrl ?? null,
+        vatNumber: cachedBiz.vatNumber ?? null,
       });
       return;
     }

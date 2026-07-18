@@ -88,7 +88,7 @@ const Reports = () => {
           .limit(1000),
         supabase
           .from("debtors")
-          .select("id, balance_due, status")
+          .select("id, amount_owed, amount_paid, status")
           .eq("business_id", business.id)
           .limit(5000),
       ]);
@@ -135,7 +135,7 @@ const Reports = () => {
     const drawings = expenses.filter((e) => e.category === "personal").reduce((s, e) => s + Number(e.amount || 0), 0);
     const grossProfit = revenue - cogs;
     const netProfit = grossProfit - businessExp;
-    const outstanding = debtors.reduce((s, d) => s + Number(d.balance_due || 0), 0);
+    const outstanding = debtors.reduce((s, d) => s + Math.max(0, Number(d.amount_owed || 0) - Number(d.amount_paid || 0)), 0);
     const byPayment: Record<string, number> = {};
     active.forEach((s) => {
       const k = s.payment_method || "unknown";

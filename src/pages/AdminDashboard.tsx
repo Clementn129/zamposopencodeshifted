@@ -965,7 +965,10 @@ const AdminDashboard = () => {
             </TabsContent>
 
             <TabsContent value="payouts">
-              <AdminAffiliatePanel />
+              <div className="text-center py-12 text-muted-foreground">
+                <p className="text-lg font-medium">Payouts</p>
+                <p className="text-sm mt-2">Affiliate payout management coming soon.</p>
+              </div>
             </TabsContent>
 
           </Tabs>

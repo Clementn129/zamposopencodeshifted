@@ -78,6 +78,7 @@ const Products = () => {
   const { labels, isService, isHybrid } = useBusinessType(business?.id);
   const {
     categories,
+    setCategories,
     refetch: refetchCategories,
     create: createCategory,
   } = useProductCategories(business?.id);
@@ -457,22 +458,9 @@ const Products = () => {
   const addCategory = async () => {
     if (!pendingNewCategory.trim()) return;
     try {
-      if (!isOnline) {
-        await queuePendingOp({
-          id: generateOfflineId(),
-          businessId: business!.id,
-          type: 'category_create',
-          payload: { name: pendingNewCategory.trim() },
-          createdAt: new Date().toISOString(),
-        });
-        setCategories(prev => [...prev, { id: generateOfflineId(), name: pendingNewCategory.trim(), business_id: business!.id }] as any);
-        setPendingNewCategory("");
-        toast({ title: "Category saved offline" });
-        return;
-      }
-      await createCategory(pendingNewCategory);
+      const result = await createCategory(pendingNewCategory);
       setPendingNewCategory("");
-      toast({ title: "Category added" });
+      if (result) toast({ title: "Category added" });
     } catch (e) {
       toast({
         variant: "destructive",

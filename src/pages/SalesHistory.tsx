@@ -1112,9 +1112,9 @@ const SalesHistory = () => {
                     }
                     const sorted = [...aggregated.entries()]
                       .map(([name, data]) => ({ name, qty: data.qty, revenue: data.revenue }))
-                      .sort((a, b) => b.qty - a.qty)
+                      .sort((a, b) => topSellingSortBy === "qty" ? b.qty - a.qty : b.revenue - a.revenue)
                       .slice(0, 50);
-                    const display = [...sorted].sort((a, b) => topSellingSortBy === "qty" ? b.qty - a.qty : b.revenue - a.revenue);
+                    const display = sorted;
                     return (
                       <Card>
                         <CardHeader>

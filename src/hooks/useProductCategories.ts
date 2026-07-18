@@ -77,5 +77,5 @@ export function useProductCategories(businessId: string | undefined) {
     [businessId, categories, refetch]
   );
 
-  return { categories, isLoading, refetch, create };
+  return { categories, setCategories, isLoading, refetch, create };
 }

@@ -520,7 +520,7 @@ const Debtors = () => {
       if (!isOnline) {
         await queuePendingOp({
           id: generateOfflineId(),
-          businessId: businessId!,
+          businessId: business!.id,
           type: 'debtor_delete',
           payload: { id: debtor.id },
           createdAt: new Date().toISOString(),
