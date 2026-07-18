@@ -262,10 +262,6 @@ export function useProducts(businessId: string | undefined) {
       const cachedMapped = cached.map(mapCachedProduct);
       setProducts(cachedMapped);
       setIsLoading(false);
-      // Add cached images in a second pass (fast, local)
-      resolveCachedBlobs(cachedMapped, blobUrlsRef).then(({ products: withBlobs, hasBlobs }) => {
-        if (hasBlobs) setProducts(withBlobs);
-      });
     } else {
       setIsLoading(true);
     }
@@ -286,9 +282,6 @@ export function useProducts(businessId: string | undefined) {
             if (retryCached.length > 0) {
               const rcm = retryCached.map(mapCachedProduct);
               setProducts(rcm);
-              resolveCachedBlobs(rcm, blobUrlsRef).then(({ products: wb, hasBlobs: hb }) => {
-                if (hb) setProducts(wb);
-              });
             }
             setIsLoading(false);
           }
@@ -308,7 +301,16 @@ export function useProducts(businessId: string | undefined) {
 
         // Resolve signed URLs (network) before updating state — single render
         const withUrls = await resolveImageUrls(mapped);
-        setProducts(withUrls);
+        // Keep existing imageUrl when available (object URL from cached blobs
+        // or signed URL from a prior fetch) to avoid reloading images that
+        // already have a working URL.
+        setProducts(prev => {
+          const prevMap = new Map(prev.map(p => [p.id, p.imageUrl]));
+          return withUrls.map(p => ({
+            ...p,
+            imageUrl: prevMap.get(p.id) ?? p.imageUrl,
+          }));
+        });
         setIsLoading(false);
 
         backgroundCacheImageBlobs(withUrls);
@@ -348,7 +350,13 @@ export function useProducts(businessId: string | undefined) {
           setIsLoading(false);
         }
       }
-    } else if (cached.length === 0) {
+    } else if (cached.length > 0) {
+      // Offline: resolve cached blobs for images (no signed URLs available)
+      const cachedMapped = cached.map(mapCachedProduct);
+      resolveCachedBlobs(cachedMapped, blobUrlsRef).then(({ products: withBlobs, hasBlobs }) => {
+        if (hasBlobs) setProducts(withBlobs);
+      });
+    } else {
       setError("No internet connection and no cached products");
       setIsLoading(false);
     }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, LogOut, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,7 @@ const Pos = () => {
   const [amountReceived, setAmountReceived] = useState("");
 
   const [visibleCount, setVisibleCount] = useState(50);
+  const visibleCountRef = useRef("");
 
   // Payment mode: full = paid in full; partial = part paid now, rest owed; credit = nothing paid, all owed.
   const [paymentMode, setPaymentMode] = useState<"full" | "partial" | "credit">("full");
@@ -136,7 +137,13 @@ const Pos = () => {
   }, []);
 
   useEffect(() => {
-    setVisibleCount(50);
+    const prev = visibleCountRef.current;
+    // Only reset visible count when the search query actually changes
+    // (different trimmed value), not on every keystroke
+    if (prev !== searchQuery.trim()) {
+      setVisibleCount(50);
+    }
+    visibleCountRef.current = searchQuery.trim();
   }, [searchQuery]);
 
   const subtotal = useMemo(() => cart.reduce((s, l) => {
@@ -621,7 +628,7 @@ const addToCart = async (productId: string) => {
                           {prods.slice(0, visibleCount).map((p) => {
                             const displayName = p.variantLabel ? `${p.name} · ${p.variantLabel}` : p.name;
                             return (
-                              <button key={p.id} onClick={() => addToCart(p.id)} className="w-full text-left bg-secondary rounded-lg p-3 hover:opacity-90 transition" style={{ contentVisibility: 'auto' }}>
+                              <button key={p.id} onClick={() => addToCart(p.id)} className="w-full text-left bg-secondary rounded-lg p-3 hover:opacity-90 transition">
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="flex items-center gap-3 min-w-0">
                                     {p.imageUrl ? (
