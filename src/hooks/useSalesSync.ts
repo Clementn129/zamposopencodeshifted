@@ -31,10 +31,11 @@ export function useSalesSync(businessId: string | undefined) {
     setIsSyncing(true);
     setLastSyncError(null);
 
+    let anySynced = false;
+
     try {
       const unsynced = await getUnsyncedSales(businessId);
       setPendingCount(unsynced.length);
-      let anySynced = false;
 
       for (const sale of unsynced) {
         try {
