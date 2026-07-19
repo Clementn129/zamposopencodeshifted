@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useBusiness } from "@/hooks/useBusiness";
 import { useSalesSync } from "@/hooks/useSalesSync";
@@ -15,6 +15,11 @@ export const AppSyncManager = () => {
   useStockSync(business?.id);
   useRealtimeSync(business?.id);
   usePendingOpsSync(business?.id);
+
+  // Stable ref so the effect doesn't re-create the channel when refetchBusiness
+  // identity changes (e.g. on isOnline toggle).
+  const refetchRef = useRef(refetchBusiness);
+  refetchRef.current = refetchBusiness;
 
   // Single realtime subscription for business row changes — owned here so
   // multiple useBusiness consumers don't fight over the same channel topic.
@@ -37,7 +42,7 @@ export const AppSyncManager = () => {
           const interesting = ['subscription_status', 'subscription_expires_at', 'is_locked', 'name', 'logo_url', 'phone', 'email', 'address'];
           const changed = interesting.some((k) => next?.[k] !== prev?.[k]);
           if (changed) {
-            void refetchBusiness();
+            void refetchRef.current();
             window.dispatchEvent(new CustomEvent('zampos:business-changed'));
           }
         }
@@ -47,7 +52,7 @@ export const AppSyncManager = () => {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [user?.id, refetchBusiness]);
+  }, [user?.id]);
 
   return null;
 };

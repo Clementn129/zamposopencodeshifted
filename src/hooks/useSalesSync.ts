@@ -85,10 +85,12 @@ export function useSalesSync(businessId: string | undefined) {
       await checkPendingCount();
       // Notify the app that sync finished so dependent hooks (products, sales
       // history, debtors) can refresh their data from the server.
-      try {
-        window.dispatchEvent(new CustomEvent("zampos:sync-complete"));
-      } catch {
-        // ignore
+      if (anySynced) {
+        try {
+          window.dispatchEvent(new CustomEvent("zampos:sync-complete"));
+        } catch {
+          // ignore
+        }
       }
     }
   }, [businessId, isOnline, checkPendingCount]);

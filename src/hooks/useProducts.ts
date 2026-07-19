@@ -367,11 +367,19 @@ export function useProducts(businessId: string | undefined) {
   }, [refetch]);
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
-      void refetch();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void refetch();
+      }, 2000);
     };
     window.addEventListener("zampos:sync-complete", handler);
-    return () => window.removeEventListener("zampos:sync-complete", handler);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("zampos:sync-complete", handler);
+    };
   }, [refetch]);
 
   return {

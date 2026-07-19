@@ -80,10 +80,12 @@ export function useStockSync(businessId: string | undefined) {
       syncInFlight.current = false;
       setIsSyncing(false);
       await checkPendingCount();
-      try {
-        window.dispatchEvent(new CustomEvent("zampos:sync-complete"));
-      } catch {
-        // ignore
+      if (syncedCount > 0) {
+        try {
+          window.dispatchEvent(new CustomEvent("zampos:sync-complete"));
+        } catch {
+          // ignore
+        }
       }
     }
   }, [businessId, isOnline, checkPendingCount]);
