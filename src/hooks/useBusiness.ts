@@ -237,35 +237,14 @@ export const useBusiness = (userId: string | undefined) => {
     fetchBusiness();
   }, [fetchBusiness]);
 
+  // Realtime business changes are handled centrally in AppSyncManager via
+  // window event — avoids multiple hook instances creating the same channel.
   useEffect(() => {
-    if (!isOnline || !userId) return;
-
-    const channel = supabase
-      .channel(`business-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'businesses',
-        },
-        (payload) => {
-          const next = payload.new as Record<string, any> | null;
-          const prev = payload.old as Record<string, any> | null;
-          if (next?.user_id !== userId) return;
-          // Only refetch when subscription/lock fields actually changed —
-          // ignore noise like last_sync_at or updated_at to avoid loops.
-          const interesting = ['subscription_status', 'subscription_expires_at', 'is_locked', 'name', 'logo_url', 'phone', 'email', 'address'];
-          const changed = interesting.some((k) => next?.[k] !== prev?.[k]);
-          if (changed) void fetchBusiness();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [fetchBusiness, isOnline, userId]);
+    if (!isOnline) return;
+    const handler = () => void fetchBusiness();
+    window.addEventListener('zampos:business-changed', handler);
+    return () => window.removeEventListener('zampos:business-changed', handler);
+  }, [fetchBusiness, isOnline]);
 
   const checkSubscriptionStatus = useCallback((): { isExpired: boolean; isLocked: boolean; daysRemaining: number } => {
     if (!business) {
