@@ -17,7 +17,7 @@ export const PWAUpdatePrompt = () => {
   const [updateSW, setUpdateSW] = useState<((reload?: boolean) => Promise<void>) | null>(null);
 
   useEffect(() => {
-    // Skip in iframe/preview contexts
+    // Skip in iframe/preview/Electron contexts
     const isInIframe = (() => {
       try {
         return window.self !== window.top;
@@ -25,11 +25,12 @@ export const PWAUpdatePrompt = () => {
         return true;
       }
     })();
+    const isElectron = navigator.userAgent?.includes("Electron") || !!(window as any).electronAPI;
     const isPreviewHost =
       window.location.hostname.includes("id-preview--") ||
       window.location.hostname.includes("lovableproject.com");
 
-    if (isInIframe || isPreviewHost || !import.meta.env.PROD) return;
+    if (isInIframe || isElectron || isPreviewHost || !import.meta.env.PROD) return;
 
     let cancelled = false;
     import("virtual:pwa-register")

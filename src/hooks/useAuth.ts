@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
+const LOADING_TIMEOUT_MS = 15_000;
+
 export type UserRole = 'owner' | 'cashier' | 'super_admin' | 'unknown';
 
 interface AuthState {
@@ -23,6 +25,7 @@ export const useAuth = () => {
 
   const initialCheckDone = useRef(false);
   const authEventHandled = useRef(false);
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resolveRole = useCallback(async (_userId: string) => {
     // Retry a couple of times to survive transient "Failed to fetch" during
@@ -61,11 +64,22 @@ export const useAuth = () => {
   }, []);
 
   useEffect(() => {
+    // Safety timeout: if auth hasn't resolved within 15s, force ready state
+    loadingTimerRef.current = setTimeout(() => {
+      if (authState.isLoading) {
+        console.warn('[useAuth] Auth loading timed out after 15s — forcing ready state');
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+      }
+      loadingTimerRef.current = null;
+    }, LOADING_TIMEOUT_MS);
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (!initialCheckDone.current && event === 'INITIAL_SESSION') return;
 
         authEventHandled.current = true;
+        clearTimeout(loadingTimerRef.current!);
+        loadingTimerRef.current = null;
         applySession(session);
 
         if (session?.user) {
@@ -82,6 +96,8 @@ export const useAuth = () => {
     supabase.auth.getSession()
       .then(async ({ data: { session }, error }) => {
         initialCheckDone.current = true;
+        clearTimeout(loadingTimerRef.current!);
+        loadingTimerRef.current = null;
         if (authEventHandled.current) return;
         if (error) console.warn('getSession returned an error:', error);
 
@@ -99,10 +115,16 @@ export const useAuth = () => {
       .catch((err: unknown) => {
         console.warn('getSession failed, continuing in offline mode:', err);
         initialCheckDone.current = true;
+        clearTimeout(loadingTimerRef.current!);
+        loadingTimerRef.current = null;
         setAuthState(prev => ({ ...prev, session: null, user: null, isLoading: false, isSuperAdmin: false, role: 'unknown' }));
       });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
+      loadingTimerRef.current = null;
+      subscription.unsubscribe();
+    };
   }, [applySession, resolveRole]);
 
   const signUp = async (email: string, password: string, fullName: string, businessName: string, phone?: string, address?: string, affiliateCode?: string) => {

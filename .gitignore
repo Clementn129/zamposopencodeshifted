@@ -26,6 +26,7 @@ dist-ssr/
 dist_electron/
 release/
 *.js.map
+ZAM POS-win32-x64/
 
 # Generated files
 supabase/migrations_all.sql

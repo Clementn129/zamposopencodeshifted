@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import {
   cacheSubscription,
@@ -58,11 +58,31 @@ const mapBusinessRow = (row: BusinessRow): Business => ({
 
 });
 
+const BUSINESS_LOADING_TIMEOUT_MS = 20_000;
+
 export const useBusiness = (userId: string | undefined) => {
   const [business, setBusiness] = useState<Business | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { isOnline } = useOnlineStatus();
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Safety timeout: force isLoading false after 20s to prevent stuck loading
+  const clearLoadingTimer = useCallback(() => {
+    if (loadingTimerRef.current) {
+      clearTimeout(loadingTimerRef.current);
+      loadingTimerRef.current = null;
+    }
+  }, []);
+
+  const startLoadingTimer = useCallback(() => {
+    clearLoadingTimer();
+    loadingTimerRef.current = setTimeout(() => {
+      loadingTimerRef.current = null;
+      console.warn('[useBusiness] Loading timed out after 20s — forcing ready state');
+      setIsLoading(false);
+    }, BUSINESS_LOADING_TIMEOUT_MS);
+  }, [clearLoadingTimer]);
 
   const persistBusinessCache = useCallback(async (row: BusinessRow) => {
     cacheSubscription({
@@ -166,7 +186,10 @@ export const useBusiness = (userId: string | undefined) => {
     // (realtime updates, tab focus, network flap) must not flip isLoading
     // true or every consumer page unmounts its dialogs / children.
     setBusiness((prev) => {
-      if (!prev) setIsLoading(true);
+      if (!prev) {
+        setIsLoading(true);
+        startLoadingTimer();
+      }
       return prev;
     });
     setError(null);
@@ -229,13 +252,15 @@ export const useBusiness = (userId: string | undefined) => {
       setError(msg);
       await loadCachedBusiness();
     } finally {
+      clearLoadingTimer();
       setIsLoading(false);
     }
-  }, [userId, isOnline, loadCachedBusiness, persistBusinessCache, updateSubscriptionStatusInDB]);
+  }, [userId, isOnline, loadCachedBusiness, persistBusinessCache, updateSubscriptionStatusInDB, startLoadingTimer, clearLoadingTimer]);
 
   useEffect(() => {
     fetchBusiness();
-  }, [fetchBusiness]);
+    return () => clearLoadingTimer();
+  }, [fetchBusiness, clearLoadingTimer]);
 
   // Realtime business changes are handled centrally in AppSyncManager via
   // window event — avoids multiple hook instances creating the same channel.
