@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
-const LOADING_TIMEOUT_MS = 15_000;
+const isElectron = typeof navigator !== 'undefined' && navigator.userAgent?.includes('Electron');
+const LOADING_TIMEOUT_MS = isElectron ? 3_000 : 15_000;
 
 export type UserRole = 'owner' | 'cashier' | 'super_admin' | 'unknown';
 

@@ -58,7 +58,8 @@ const mapBusinessRow = (row: BusinessRow): Business => ({
 
 });
 
-const BUSINESS_LOADING_TIMEOUT_MS = 20_000;
+const isElectronBiz = typeof navigator !== 'undefined' && navigator.userAgent?.includes('Electron');
+const BUSINESS_LOADING_TIMEOUT_MS = isElectronBiz ? 5_000 : 20_000;
 
 export const useBusiness = (userId: string | undefined) => {
   const [business, setBusiness] = useState<Business | null>(null);
