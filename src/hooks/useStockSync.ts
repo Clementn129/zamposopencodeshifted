@@ -29,6 +29,8 @@ export function useStockSync(businessId: string | undefined) {
     syncInFlight.current = true;
     setIsSyncing(true);
 
+    let syncedCount = 0;
+
     try {
       const unsynced = await getUnsyncedStockUpdates(businessId);
       setPendingCount(unsynced.length);
@@ -42,8 +44,6 @@ export function useStockSync(businessId: string | undefined) {
         productChanges[update.productId].netChange += update.stockChange;
         productChanges[update.productId].updateIds.push(update.id);
       }
-
-      let syncedCount = 0;
 
       for (const [productId, change] of Object.entries(productChanges)) {
         try {
