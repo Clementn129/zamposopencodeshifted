@@ -25,7 +25,7 @@ function createWindow() {
     mainWindow.loadURL("http://localhost:8080");
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    mainWindow.loadURL("https://zampos-wheat.vercel.app/");
   }
 
   mainWindow.on("closed", () => {
