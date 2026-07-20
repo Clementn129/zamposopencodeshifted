@@ -236,13 +236,18 @@ export const useBusiness = (userId: string | undefined) => {
       await persistBusinessCache(row);
 
       // Stamp last_sync_at and capture server time for anti-tamper
-      const { data: touched } = await supabase
-        .from('businesses')
-        .update({ last_sync_at: new Date().toISOString() })
-        .eq('id', data.id)
-        .select('updated_at')
-        .single()
-        .catch(() => ({ data: null }));
+      let touched: { updated_at: string | null } | null = null;
+      try {
+        const result = await supabase
+          .from('businesses')
+          .update({ last_sync_at: new Date().toISOString() })
+          .eq('id', data.id)
+          .select('updated_at')
+          .single();
+        touched = result.data as { updated_at: string | null } | null;
+      } catch {
+        // non-critical — business data loads regardless
+      }
       const serverTime = touched?.updated_at
         ? new Date(touched.updated_at + 'Z')
         : new Date(data.updated_at ?? new Date().toISOString());
