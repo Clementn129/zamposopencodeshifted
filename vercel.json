@@ -2,7 +2,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "protected": false,
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
