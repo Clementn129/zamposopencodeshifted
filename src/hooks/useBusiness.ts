@@ -289,7 +289,7 @@ export const useBusiness = (userId: string | undefined) => {
     const now = getAdjustedTime();
     const expiresAt = business.subscriptionExpiresAt;
 
-    if (!expiresAt) {
+    if (!expiresAt || isNaN(expiresAt.getTime())) {
       return { isExpired: true, isLocked: true, daysRemaining: 0 };
     }
 
