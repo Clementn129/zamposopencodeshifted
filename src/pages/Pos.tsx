@@ -82,6 +82,7 @@ const Pos = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("sale");
 
   // Discount state
@@ -212,6 +213,8 @@ const addToCart = async (productId: string) => {
       activeProducts.find((p) => p.name.toLowerCase() === lower);
     if (match) {
       addToCart(match.id);
+      setSearchQuery("");
+      searchInputRef.current?.focus();
     } else {
       // Fall back to populating the search box so the user sees the code.
       setSearchQuery(trimmed);
@@ -605,6 +608,7 @@ const addToCart = async (productId: string) => {
                     <div className="relative mt-2">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
+                        ref={searchInputRef}
                         type="text"
                         placeholder={`Search by name, category, or scan barcode...`}
                         className="pl-9"
