@@ -30,6 +30,14 @@ export const PWAUpdatePrompt = () => {
       window.location.hostname.includes("id-preview--") ||
       window.location.hostname.includes("lovableproject.com");
 
+    if (isElectron) {
+      // Unregister any stale Service Worker from a previous EXE session
+      // so it doesn't serve cached old JS bundles.
+      navigator.serviceWorker?.getRegistrations().then((regs) => {
+        for (const reg of regs) reg.unregister();
+      }).catch(() => {});
+    }
+
     if (isInIframe || isElectron || isPreviewHost || !import.meta.env.PROD) return;
 
     let cancelled = false;
