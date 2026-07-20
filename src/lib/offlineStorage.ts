@@ -449,6 +449,10 @@ export const getAdjustedTime = (): Date => {
   if (!offsetStr) return new Date();
   
   const offset = parseInt(offsetStr, 10);
+  if (isNaN(offset)) {
+    localStorage.removeItem('zampos_time_offset');
+    return new Date();
+  }
   return new Date(Date.now() + offset);
 };
 
