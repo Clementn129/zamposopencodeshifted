@@ -81,6 +81,27 @@ export const useAuth = () => {
         authEventHandled.current = true;
         clearTimeout(loadingTimerRef.current!);
         loadingTimerRef.current = null;
+
+        // If session is null but this isn't an explicit sign-out, re-fetch to
+        // guard against transient token-refresh failures (network hiccup etc.)
+        if (!session && event !== 'SIGNED_OUT' && event !== 'INITIAL_SESSION') {
+          supabase.auth.getSession().then(({ data: { session: fresh } }) => {
+            if (fresh) {
+              applySession(fresh);
+              setTimeout(async () => {
+                const { role, isSuperAdmin } = await resolveRole(fresh.user.id);
+                setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
+              }, 0);
+            } else {
+              applySession(null);
+              setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
+            }
+          }).catch(() => {
+            // Network completely down — keep existing state rather than logging out
+          });
+          return;
+        }
+
         applySession(session);
 
         if (session?.user) {
@@ -114,11 +135,11 @@ export const useAuth = () => {
         }
       })
       .catch((err: unknown) => {
-        console.warn('getSession failed, continuing in offline mode:', err);
+        console.warn('getSession failed, keeping existing state:', err);
         initialCheckDone.current = true;
         clearTimeout(loadingTimerRef.current!);
         loadingTimerRef.current = null;
-        setAuthState(prev => ({ ...prev, session: null, user: null, isLoading: false, isSuperAdmin: false, role: 'unknown' }));
+        setAuthState(prev => ({ ...prev, isLoading: false }));
       });
 
     return () => {
@@ -212,11 +233,8 @@ export const useAuth = () => {
   };
 
   const signOut = async () => {
-    // Eagerly clear local state before the async call to prevent redirect race
-    applySession(null, undefined);
     const { error } = await supabase.auth.signOut();
     if (error) {
-      // If signOut API fails, restore the session (it wasn't actually cleared server-side)
       return { error };
     }
     return { error: null };
