@@ -27,6 +27,7 @@ export const useAuth = () => {
   const initialCheckDone = useRef(false);
   const authEventHandled = useRef(false);
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isRecoveringRef = useRef(false);
 
   const resolveRole = useCallback(async (_userId: string) => {
     // Retry a couple of times to survive transient "Failed to fetch" during
@@ -82,36 +83,38 @@ export const useAuth = () => {
         clearTimeout(loadingTimerRef.current!);
         loadingTimerRef.current = null;
 
-        // If session is null but this isn't an explicit sign-out, re-fetch to
-        // guard against transient token-refresh failures (network hiccup etc.)
-        if (!session && event !== 'SIGNED_OUT' && event !== 'INITIAL_SESSION') {
-          supabase.auth.getSession().then(({ data: { session: fresh } }) => {
-            if (fresh) {
-              applySession(fresh);
-              setTimeout(async () => {
-                const { role, isSuperAdmin } = await resolveRole(fresh.user.id);
-                setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
-              }, 0);
-            } else {
-              applySession(null);
-              setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
-            }
-          }).catch(() => {
-            // Network completely down — keep existing state rather than logging out
-          });
-          return;
-        }
-
-        applySession(session);
-
+        // If session is present, apply it directly
         if (session?.user) {
+          applySession(session);
           setTimeout(async () => {
             const { role, isSuperAdmin } = await resolveRole(session.user.id);
             setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
           }, 0);
-        } else {
-          setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
+          return;
         }
+
+        // Session is null — could be a genuine sign-out OR a token refresh failure.
+        // Always try to re-fetch before clearing to prevent mid-use logouts.
+        if (isRecoveringRef.current) return;
+        isRecoveringRef.current = true;
+
+        supabase.auth.getSession().then(({ data: { session: fresh } }) => {
+          isRecoveringRef.current = false;
+          if (fresh?.user) {
+            applySession(fresh);
+            setTimeout(async () => {
+              const { role, isSuperAdmin } = await resolveRole(fresh.user.id);
+              setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
+            }, 0);
+          } else {
+            // Confirmed no session — only now clear
+            applySession(null);
+            setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
+          }
+        }).catch(() => {
+          isRecoveringRef.current = false;
+          // Network down — keep existing state
+        });
       }
     );
 
