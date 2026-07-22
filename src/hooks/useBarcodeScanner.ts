@@ -22,7 +22,7 @@ export function useBarcodeScanner(
 ) {
   const enabled = options?.enabled !== false;
   const minLength = options?.minLength ?? 4;
-  const maxInterval = options?.maxIntervalMs ?? 50;
+  const maxInterval = options?.maxIntervalMs ?? 150;
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
 
