@@ -26,6 +26,7 @@ import AuditLog from "./pages/AuditLog";
 import NotFound from "./pages/NotFound";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { AppSyncManager } from "@/components/AppSyncManager";
+import DebugOverlay from "@/components/DebugOverlay";
 
 const queryClient = new QueryClient();
 
@@ -65,6 +66,7 @@ const App = forwardRef<HTMLDivElement>((_, ref) => (
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>
+    <DebugOverlay />
   </div>
 ));
 
