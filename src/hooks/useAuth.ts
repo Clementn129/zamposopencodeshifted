@@ -5,12 +5,6 @@ import { supabase } from '@/integrations/supabase/client';
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent?.includes('Electron');
 const LOADING_TIMEOUT_MS = isElectron ? 3_000 : 15_000;
 
-/** After a successful sign-in, ignore spurious SIGNED_OUT events for this long.
- *  On some Android POS browsers the Supabase client fires SIGNED_OUT within
- *  seconds of a fresh login because the session hasn't fully persisted to
- *  storage yet. */
-const SIGN_IN_GRACE_MS = 30_000;
-
 export type UserRole = 'owner' | 'cashier' | 'super_admin' | 'unknown';
 
 interface AuthState {
@@ -35,14 +29,6 @@ export const useAuth = () => {
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRecoveringRef = useRef(false);
 
-  /** Timestamp (Date.now()) of the last successful online sign-in. Used to
-   *  suppress spurious SIGNED_OUT events that fire right after login. */
-  const signedInAtRef = useRef(0);
-
-  /** In-memory mirror of the current session. Acts as a safety net when
-   *  localStorage is unreliable (e.g. Android 8 WebView, privacy mode). */
-  const sessionRef = useRef<Session | null>(null);
-
   const resolveRole = useCallback(async (_userId: string) => {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -65,7 +51,6 @@ export const useAuth = () => {
   }, []);
 
   const applySession = useCallback((session: Session | null, isLoading = false) => {
-    sessionRef.current = session;
     setAuthState(prev => ({
       ...prev,
       session,
@@ -79,7 +64,7 @@ export const useAuth = () => {
   useEffect(() => {
     loadingTimerRef.current = setTimeout(() => {
       if (authState.isLoading) {
-        console.warn('[useAuth] Auth loading timed out after 15s — forcing ready state');
+        console.warn('[useAuth] Auth loading timed out — forcing ready state');
         setAuthState(prev => ({ ...prev, isLoading: false }));
       }
       loadingTimerRef.current = null;
@@ -93,10 +78,9 @@ export const useAuth = () => {
         clearTimeout(loadingTimerRef.current!);
         loadingTimerRef.current = null;
 
-        console.log('[useAuth] onAuthStateChange:', event, session ? 'session-present' : 'session-null');
+        console.log('[useAuth]', event, session ? 'session-ok' : 'session-null');
 
         if (session?.user) {
-          signedInAtRef.current = Date.now();
           applySession(session);
           setTimeout(async () => {
             const { role, isSuperAdmin } = await resolveRole(session.user.id);
@@ -105,42 +89,61 @@ export const useAuth = () => {
           return;
         }
 
-        // ---- session is null ----
-
-        // Grace period: ignore spurious null-session events right after login.
-        // On some Android POS browsers Supabase fires SIGNED_OUT within seconds
-        // of a fresh login before the session is fully persisted to storage.
-        const msSinceSignIn = Date.now() - signedInAtRef.current;
-        if (signedInAtRef.current > 0 && msSinceSignIn < SIGN_IN_GRACE_MS) {
-          console.warn(`[useAuth] Ignoring null-session event (${event}) — ${msSinceSignIn}ms since sign-in (grace period ${SIGN_IN_GRACE_MS}ms)`);
-          return;
-        }
-
+        // Session is null — try to recover before clearing
         if (isRecoveringRef.current) return;
         isRecoveringRef.current = true;
 
+        // Step 1: Try getSession (maybe a false alarm / transient storage glitch)
         supabase.auth.getSession().then(({ data: { session: fresh } }) => {
-          isRecoveringRef.current = false;
           if (fresh?.user) {
-            signedInAtRef.current = Date.now();
+            isRecoveringRef.current = false;
             applySession(fresh);
             setTimeout(async () => {
               const { role, isSuperAdmin } = await resolveRole(fresh.user.id);
               setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
             }, 0);
-          } else if (sessionRef.current?.user) {
-            // Storage returned nothing but we still have an in-memory session.
-            // This happens on devices where localStorage is unreliable.
-            // Keep the in-memory session alive — better to stay logged in
-            // with a possibly-stale token than to kick the user out.
-            console.warn('[useAuth] getSession returned null but in-memory session exists — keeping session');
-          } else {
+            return;
+          }
+
+          // Step 2: Try refreshSession (access token expired but refresh token may still work)
+          console.warn('[useAuth] Session lost, attempting refreshSession...');
+          supabase.auth.getSession().then(() => {}).catch(() => {}); // warm up
+
+          supabase.auth.refreshSession().then(({ data: { session: refreshed }, error }) => {
+            isRecoveringRef.current = false;
+            if (refreshed?.user) {
+              console.log('[useAuth] refreshSession succeeded');
+              applySession(refreshed);
+              setTimeout(async () => {
+                const { role, isSuperAdmin } = await resolveRole(refreshed.user.id);
+                setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
+              }, 0);
+            } else {
+              // Step 3: Recovery failed — clear and redirect to login
+              console.warn('[useAuth] All recovery failed:', error?.message || 'no session');
+              applySession(null);
+              setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
+            }
+          }).catch((refreshErr) => {
+            isRecoveringRef.current = false;
+            console.warn('[useAuth] refreshSession threw:', refreshErr);
             applySession(null);
             setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
-          }
+          });
         }).catch(() => {
           isRecoveringRef.current = false;
-          // Network down — keep existing state
+          // Network down on getSession — try refreshSession anyway
+          supabase.auth.refreshSession().then(({ data: { session: refreshed } }) => {
+            if (refreshed?.user) {
+              applySession(refreshed);
+            } else {
+              applySession(null);
+              setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
+            }
+          }).catch(() => {
+            applySession(null);
+            setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
+          });
         });
       }
     );
@@ -154,7 +157,6 @@ export const useAuth = () => {
         if (error) console.warn('getSession returned an error:', error);
 
         applySession(session);
-        if (session?.user) signedInAtRef.current = Date.now();
 
         if (session?.user) {
           try {
@@ -204,7 +206,6 @@ export const useAuth = () => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (!error) {
-        signedInAtRef.current = Date.now();
         applySession(data.session);
         if (data.session?.user) {
           setTimeout(async () => {
