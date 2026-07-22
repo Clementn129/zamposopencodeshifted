@@ -33,8 +33,11 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 /**
  * Custom auth storage that isolates sessions per user so signing out of one
  * account doesn't affect another.  Sessions are stored in localStorage with
- * a user-ID suffix (e.g.  `sb-{ref}-auth-token-{userId}`).  A per-tab marker
- * in sessionStorage tracks which user this tab is using.
+ * a user-ID suffix (e.g.  `sb-{ref}-auth-token-{userId}`).
+ *
+ * IMPORTANT: We use ONLY localStorage — never sessionStorage.  Android 8.1
+ * WebView aggressively clears sessionStorage when the tab is backgrounded
+ * or killed, which causes the session to appear "lost" and logs the user out.
  *
  *   setItem → extracts user.id from the session JSON, writes `key-{userId}`
  *   getItem → reads `key-{activeUserId}`, falls back to scanning for any
@@ -45,53 +48,18 @@ function buildMultiAccountStorage(): Storage {
   const ls = (() => {
     try { return localStorage; } catch { return null; }
   })();
-  const ss = (() => {
-    try { return sessionStorage; } catch { return null; }
-  })();
   const ACTIVE_USER_KEY = 'zampos_active_user';
-  const ACTIVE_USER_LS_KEY = 'zampos_active_user_ls';
 
   const getActiveUserId = (): string | null => {
-    // 1) Try sessionStorage (normal path)
-    if (ss) {
-      try {
-        const ssVal = ss.getItem(ACTIVE_USER_KEY);
-        if (ssVal) return ssVal;
-      } catch { /* noop */ }
-    }
-    // 2) Fallback: localStorage (survives Android tab kills)
-    if (ls) {
-      try {
-        const lsVal = ls.getItem(ACTIVE_USER_LS_KEY);
-        if (lsVal) {
-          // Restore into sessionStorage so subsequent lookups are fast
-          if (ss) {
-            try { ss.setItem(ACTIVE_USER_KEY, lsVal); } catch { /* noop */ }
-          }
-          return lsVal;
-        }
-      } catch { /* noop */ }
-    }
-    return null;
+    if (!ls) return null;
+    try {
+      return ls.getItem(ACTIVE_USER_KEY);
+    } catch { return null; }
   };
 
   const setActiveUserId = (id: string) => {
-    // Write to both sessionStorage and localStorage
-    if (ss) {
-      try { ss.setItem(ACTIVE_USER_KEY, id); } catch { /* noop */ }
-    }
-    if (ls) {
-      try { ls.setItem(ACTIVE_USER_LS_KEY, id); } catch { /* noop */ }
-    }
-  };
-
-  const clearActiveUserId = () => {
-    if (ss) {
-      try { ss.removeItem(ACTIVE_USER_KEY); } catch { /* noop */ }
-    }
-    if (ls) {
-      try { ls.removeItem(ACTIVE_USER_LS_KEY); } catch { /* noop */ }
-    }
+    if (!ls) return;
+    try { ls.setItem(ACTIVE_USER_KEY, id); } catch { /* noop */ }
   };
 
   const lGet = (k: string): string | null => {
@@ -115,7 +83,7 @@ function buildMultiAccountStorage(): Storage {
     getItem(key: string): string | null {
       if (!key.includes('auth-token')) return lGet(key);
 
-      // 1) Active user's specific key (sessionStorage → localStorage fallback)
+      // 1) Active user's specific key
       const activeId = getActiveUserId();
       if (activeId) {
         const val = lGet(`${key}-${activeId}`);
@@ -147,7 +115,6 @@ function buildMultiAccountStorage(): Storage {
             if (k?.startsWith(key + '-')) {
               const val = lGet(k);
               if (val) {
-                // Parse to find the most recent session
                 try {
                   const sess = JSON.parse(val);
                   const t = sess?.updated_at ? new Date(sess.updated_at).getTime() : 0;
@@ -156,7 +123,6 @@ function buildMultiAccountStorage(): Storage {
                     bestKey = k;
                   }
                 } catch {
-                  // If can't parse, just use first match
                   if (!bestKey) bestKey = k;
                 }
               }
@@ -209,3 +175,19 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     autoRefreshToken: true,
   }
 });
+
+/**
+ * Keep-alive: refresh the Supabase token every 10 minutes while the app is
+ * open.  Android 8.1 WebView can silently drop the session if the tab sits
+ * idle for too long.  Periodic refreshes keep the access token fresh and
+ * prevent the auth state change listener from firing a spurious SIGNED_OUT.
+ */
+if (typeof window !== 'undefined') {
+  setInterval(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        supabase.auth.refreshSession();
+      }
+    }).catch(() => { /* ignore */ });
+  }, 10 * 60 * 1000);
+}
