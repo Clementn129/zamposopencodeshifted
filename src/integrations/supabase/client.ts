@@ -49,14 +49,49 @@ function buildMultiAccountStorage(): Storage {
     try { return sessionStorage; } catch { return null; }
   })();
   const ACTIVE_USER_KEY = 'zampos_active_user';
+  const ACTIVE_USER_LS_KEY = 'zampos_active_user_ls';
 
   const getActiveUserId = (): string | null => {
-    if (!ss) return null;
-    try { return ss.getItem(ACTIVE_USER_KEY); } catch { return null; }
+    // 1) Try sessionStorage (normal path)
+    if (ss) {
+      try {
+        const ssVal = ss.getItem(ACTIVE_USER_KEY);
+        if (ssVal) return ssVal;
+      } catch { /* noop */ }
+    }
+    // 2) Fallback: localStorage (survives Android tab kills)
+    if (ls) {
+      try {
+        const lsVal = ls.getItem(ACTIVE_USER_LS_KEY);
+        if (lsVal) {
+          // Restore into sessionStorage so subsequent lookups are fast
+          if (ss) {
+            try { ss.setItem(ACTIVE_USER_KEY, lsVal); } catch { /* noop */ }
+          }
+          return lsVal;
+        }
+      } catch { /* noop */ }
+    }
+    return null;
   };
+
   const setActiveUserId = (id: string) => {
-    if (!ss) return;
-    try { ss.setItem(ACTIVE_USER_KEY, id); } catch { /* noop */ }
+    // Write to both sessionStorage and localStorage
+    if (ss) {
+      try { ss.setItem(ACTIVE_USER_KEY, id); } catch { /* noop */ }
+    }
+    if (ls) {
+      try { ls.setItem(ACTIVE_USER_LS_KEY, id); } catch { /* noop */ }
+    }
+  };
+
+  const clearActiveUserId = () => {
+    if (ss) {
+      try { ss.removeItem(ACTIVE_USER_KEY); } catch { /* noop */ }
+    }
+    if (ls) {
+      try { ls.removeItem(ACTIVE_USER_LS_KEY); } catch { /* noop */ }
+    }
   };
 
   const lGet = (k: string): string | null => {
@@ -80,7 +115,7 @@ function buildMultiAccountStorage(): Storage {
     getItem(key: string): string | null {
       if (!key.includes('auth-token')) return lGet(key);
 
-      // 1) Active user's specific key
+      // 1) Active user's specific key (sessionStorage → localStorage fallback)
       const activeId = getActiveUserId();
       if (activeId) {
         const val = lGet(`${key}-${activeId}`);
@@ -102,18 +137,35 @@ function buildMultiAccountStorage(): Storage {
         return legacy;
       }
 
-      // 3) Scan for any existing user-specific key
+      // 3) Scan for any existing user-specific key (pick most recently updated)
       if (ls) {
         try {
+          let bestKey: string | null = null;
+          let bestTime = 0;
           for (let i = 0; i < ls.length; i++) {
             const k = ls.key(i);
             if (k?.startsWith(key + '-')) {
               const val = lGet(k);
               if (val) {
-                setActiveUserId(k.slice(key.length + 1));
-                return val;
+                // Parse to find the most recent session
+                try {
+                  const sess = JSON.parse(val);
+                  const t = sess?.updated_at ? new Date(sess.updated_at).getTime() : 0;
+                  if (t >= bestTime) {
+                    bestTime = t;
+                    bestKey = k;
+                  }
+                } catch {
+                  // If can't parse, just use first match
+                  if (!bestKey) bestKey = k;
+                }
               }
             }
+          }
+          if (bestKey) {
+            const userId = bestKey.slice(key.length + 1);
+            setActiveUserId(userId);
+            return lGet(bestKey);
           }
         } catch { /* ignore */ }
       }
