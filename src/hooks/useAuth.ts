@@ -5,6 +5,11 @@ import { supabase } from '@/integrations/supabase/client';
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent?.includes('Electron');
 const LOADING_TIMEOUT_MS = isElectron ? 3_000 : 15_000;
 
+/** Maximum time to spend trying to recover a lost session before giving up
+ *  and redirecting to login. Prevents the app from hanging forever if
+ *  getSession / refreshSession stall on slow or flaky networks. */
+const RECOVERY_TIMEOUT_MS = 10_000;
+
 export type UserRole = 'owner' | 'cashier' | 'super_admin' | 'unknown';
 
 interface AuthState {
@@ -28,6 +33,7 @@ export const useAuth = () => {
   const authEventHandled = useRef(false);
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRecoveringRef = useRef(false);
+  const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resolveRole = useCallback(async (_userId: string) => {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -61,6 +67,13 @@ export const useAuth = () => {
     }));
   }, []);
 
+  const clearRecoveryTimer = useCallback(() => {
+    if (recoveryTimerRef.current) {
+      clearTimeout(recoveryTimerRef.current);
+      recoveryTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     loadingTimerRef.current = setTimeout(() => {
       if (authState.isLoading) {
@@ -81,6 +94,9 @@ export const useAuth = () => {
         console.log('[useAuth]', event, session ? 'session-ok' : 'session-null');
 
         if (session?.user) {
+          // Session recovered or fresh login — cancel any pending recovery
+          clearRecoveryTimer();
+          isRecoveringRef.current = false;
           applySession(session);
           setTimeout(async () => {
             const { role, isSuperAdmin } = await resolveRole(session.user.id);
@@ -89,28 +105,45 @@ export const useAuth = () => {
           return;
         }
 
-        // Session is null — try to recover before clearing
+        // ---- session is null ----
         if (isRecoveringRef.current) return;
         isRecoveringRef.current = true;
 
-        // Step 1: Try getSession (maybe a false alarm / transient storage glitch)
-        supabase.auth.getSession().then(({ data: { session: fresh } }) => {
-          if (fresh?.user) {
-            isRecoveringRef.current = false;
-            applySession(fresh);
-            setTimeout(async () => {
-              const { role, isSuperAdmin } = await resolveRole(fresh.user.id);
-              setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
-            }, 0);
-            return;
-          }
+        // Safety net: if recovery takes longer than RECOVERY_TIMEOUT_MS,
+        // force-clear the session so the user sees the login page instead
+        // of being stuck forever.
+        recoveryTimerRef.current = setTimeout(() => {
+          if (!isRecoveringRef.current) return;
+          console.warn('[useAuth] Recovery timed out — clearing session');
+          isRecoveringRef.current = false;
+          applySession(null);
+          setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
+        }, RECOVERY_TIMEOUT_MS);
 
-          // Step 2: Try refreshSession (access token expired but refresh token may still work)
-          console.warn('[useAuth] Session lost, attempting refreshSession...');
-          supabase.auth.getSession().then(() => {}).catch(() => {}); // warm up
+        // Step 1: try getSession (false alarm / transient storage glitch)
+        supabase.auth.getSession()
+          .then(({ data: { session: fresh } }) => {
+            if (fresh?.user) {
+              clearRecoveryTimer();
+              isRecoveringRef.current = false;
+              applySession(fresh);
+              setTimeout(async () => {
+                const { role, isSuperAdmin } = await resolveRole(fresh.user.id);
+                setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
+              }, 0);
+              return;
+            }
 
-          supabase.auth.refreshSession().then(({ data: { session: refreshed }, error }) => {
+            // Step 2: try refreshSession (access token expired but refresh token may work)
+            console.warn('[useAuth] Session lost, trying refreshSession...');
+            return supabase.auth.refreshSession();
+          })
+          .then((result) => {
+            if (!result) return; // getSession already handled
+            const { data: { session: refreshed }, error } = result;
+            clearRecoveryTimer();
             isRecoveringRef.current = false;
+
             if (refreshed?.user) {
               console.log('[useAuth] refreshSession succeeded');
               applySession(refreshed);
@@ -119,32 +152,18 @@ export const useAuth = () => {
                 setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
               }, 0);
             } else {
-              // Step 3: Recovery failed — clear and redirect to login
               console.warn('[useAuth] All recovery failed:', error?.message || 'no session');
               applySession(null);
               setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
             }
-          }).catch((refreshErr) => {
+          })
+          .catch((err) => {
+            console.warn('[useAuth] Recovery error:', err);
+            clearRecoveryTimer();
             isRecoveringRef.current = false;
-            console.warn('[useAuth] refreshSession threw:', refreshErr);
             applySession(null);
             setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
           });
-        }).catch(() => {
-          isRecoveringRef.current = false;
-          // Network down on getSession — try refreshSession anyway
-          supabase.auth.refreshSession().then(({ data: { session: refreshed } }) => {
-            if (refreshed?.user) {
-              applySession(refreshed);
-            } else {
-              applySession(null);
-              setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
-            }
-          }).catch(() => {
-            applySession(null);
-            setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
-          });
-        });
       }
     );
 
@@ -178,9 +197,10 @@ export const useAuth = () => {
     return () => {
       if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
       loadingTimerRef.current = null;
+      clearRecoveryTimer();
       subscription.unsubscribe();
     };
-  }, [applySession, resolveRole]);
+  }, [applySession, resolveRole, clearRecoveryTimer]);
 
   const signUp = async (email: string, password: string, fullName: string, businessName: string, phone?: string, address?: string, affiliateCode?: string) => {
     const { getAppUrl } = await import('@/lib/appUrl');
@@ -269,12 +289,16 @@ export const useAuth = () => {
     }
   };
 
+  /** Safe signOut — never throws, so callers can always navigate after. */
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
+    try {
+      const { error } = await supabase.auth.signOut();
       return { error };
+    } catch (e) {
+      console.warn('[useAuth] signOut threw:', e);
+      // Even if signOut fails, we should still redirect.
+      return { error: e instanceof Error ? e : new Error('Sign out failed') };
     }
-    return { error: null };
   };
 
   return {
