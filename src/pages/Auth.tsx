@@ -100,19 +100,11 @@ const Auth = () => {
         });
       }
     } catch (err) {
-      const { error: offlineError } = await signInOffline(loginEmail, loginPassword);
-      if (offlineError) {
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Something went wrong. Please try again.',
-        });
-      } else {
-        toast({
-          title: 'Offline Mode',
-          description: 'Signed in with cached credentials.',
-        });
-      }
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Something went wrong. Please try again.',
+      });
     } finally {
       setIsLoading(false);
     }

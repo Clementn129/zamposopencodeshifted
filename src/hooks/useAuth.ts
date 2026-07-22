@@ -5,6 +5,12 @@ import { supabase } from '@/integrations/supabase/client';
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent?.includes('Electron');
 const LOADING_TIMEOUT_MS = isElectron ? 3_000 : 15_000;
 
+/** After a successful sign-in, ignore spurious SIGNED_OUT events for this long.
+ *  On some Android POS browsers the Supabase client fires SIGNED_OUT within
+ *  seconds of a fresh login because the session hasn't fully persisted to
+ *  storage yet. */
+const SIGN_IN_GRACE_MS = 30_000;
+
 export type UserRole = 'owner' | 'cashier' | 'super_admin' | 'unknown';
 
 interface AuthState {
@@ -29,10 +35,15 @@ export const useAuth = () => {
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRecoveringRef = useRef(false);
 
+  /** Timestamp (Date.now()) of the last successful online sign-in. Used to
+   *  suppress spurious SIGNED_OUT events that fire right after login. */
+  const signedInAtRef = useRef(0);
+
+  /** In-memory mirror of the current session. Acts as a safety net when
+   *  localStorage is unreliable (e.g. Android 8 WebView, privacy mode). */
+  const sessionRef = useRef<Session | null>(null);
+
   const resolveRole = useCallback(async (_userId: string) => {
-    // Retry a couple of times to survive transient "Failed to fetch" during
-    // PWA boot / cold network wake-up. Backoff is intentionally short so the
-    // UI doesn't get stuck on the loading screen.
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const { data, error } = await supabase.rpc('get_my_role');
@@ -40,7 +51,6 @@ export const useAuth = () => {
           const role = (data as UserRole) || 'unknown';
           return { role, isSuperAdmin: role === 'super_admin' };
         }
-        // Only retry on network-ish errors; log others once and bail.
         const msg = String(error?.message || '');
         if (!/fetch|network|timeout/i.test(msg)) {
           console.warn('get_my_role failed:', error);
@@ -55,6 +65,7 @@ export const useAuth = () => {
   }, []);
 
   const applySession = useCallback((session: Session | null, isLoading = false) => {
+    sessionRef.current = session;
     setAuthState(prev => ({
       ...prev,
       session,
@@ -66,7 +77,6 @@ export const useAuth = () => {
   }, []);
 
   useEffect(() => {
-    // Safety timeout: if auth hasn't resolved within 15s, force ready state
     loadingTimerRef.current = setTimeout(() => {
       if (authState.isLoading) {
         console.warn('[useAuth] Auth loading timed out after 15s — forcing ready state');
@@ -83,8 +93,10 @@ export const useAuth = () => {
         clearTimeout(loadingTimerRef.current!);
         loadingTimerRef.current = null;
 
-        // If session is present, apply it directly
+        console.log('[useAuth] onAuthStateChange:', event, session ? 'session-present' : 'session-null');
+
         if (session?.user) {
+          signedInAtRef.current = Date.now();
           applySession(session);
           setTimeout(async () => {
             const { role, isSuperAdmin } = await resolveRole(session.user.id);
@@ -93,21 +105,36 @@ export const useAuth = () => {
           return;
         }
 
-        // Session is null — could be a genuine sign-out OR a token refresh failure.
-        // Always try to re-fetch before clearing to prevent mid-use logouts.
+        // ---- session is null ----
+
+        // Grace period: ignore spurious null-session events right after login.
+        // On some Android POS browsers Supabase fires SIGNED_OUT within seconds
+        // of a fresh login before the session is fully persisted to storage.
+        const msSinceSignIn = Date.now() - signedInAtRef.current;
+        if (signedInAtRef.current > 0 && msSinceSignIn < SIGN_IN_GRACE_MS) {
+          console.warn(`[useAuth] Ignoring null-session event (${event}) — ${msSinceSignIn}ms since sign-in (grace period ${SIGN_IN_GRACE_MS}ms)`);
+          return;
+        }
+
         if (isRecoveringRef.current) return;
         isRecoveringRef.current = true;
 
         supabase.auth.getSession().then(({ data: { session: fresh } }) => {
           isRecoveringRef.current = false;
           if (fresh?.user) {
+            signedInAtRef.current = Date.now();
             applySession(fresh);
             setTimeout(async () => {
               const { role, isSuperAdmin } = await resolveRole(fresh.user.id);
               setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
             }, 0);
+          } else if (sessionRef.current?.user) {
+            // Storage returned nothing but we still have an in-memory session.
+            // This happens on devices where localStorage is unreliable.
+            // Keep the in-memory session alive — better to stay logged in
+            // with a possibly-stale token than to kick the user out.
+            console.warn('[useAuth] getSession returned null but in-memory session exists — keeping session');
           } else {
-            // Confirmed no session — only now clear
             applySession(null);
             setAuthState(prev => ({ ...prev, isSuperAdmin: false, role: 'unknown' }));
           }
@@ -127,6 +154,7 @@ export const useAuth = () => {
         if (error) console.warn('getSession returned an error:', error);
 
         applySession(session);
+        if (session?.user) signedInAtRef.current = Date.now();
 
         if (session?.user) {
           try {
@@ -173,30 +201,36 @@ export const useAuth = () => {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (!error) {
-      applySession(data.session);
-      if (data.session?.user) {
-        setTimeout(async () => {
-          const { role, isSuperAdmin } = await resolveRole(data.session.user.id);
-          setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
-          try {
-            const { cacheOfflineCredentials, hashPassword } = await import('@/lib/offlineStorage');
-            const passwordHash = await hashPassword(password);
-            await cacheOfflineCredentials({
-              email,
-              passwordHash,
-              userId: data.session.user.id,
-              role,
-              lastOnlineLogin: new Date().toISOString(),
-            });
-          } catch (e) {
-            console.warn('Failed to cache credentials for offline use:', e);
-          }
-        }, 0);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (!error) {
+        signedInAtRef.current = Date.now();
+        applySession(data.session);
+        if (data.session?.user) {
+          setTimeout(async () => {
+            const { role, isSuperAdmin } = await resolveRole(data.session.user.id);
+            setAuthState(prev => ({ ...prev, role, isSuperAdmin }));
+            try {
+              const { cacheOfflineCredentials, hashPassword } = await import('@/lib/offlineStorage');
+              const passwordHash = await hashPassword(password);
+              await cacheOfflineCredentials({
+                email,
+                passwordHash,
+                userId: data.session.user.id,
+                role,
+                lastOnlineLogin: new Date().toISOString(),
+              });
+            } catch (e) {
+              console.warn('Failed to cache credentials for offline use:', e);
+            }
+          }, 0);
+        }
       }
+      return { error };
+    } catch (e) {
+      console.warn('[useAuth] signIn threw:', e);
+      return { error: e instanceof Error ? e : new Error('Sign in failed') };
     }
-    return { error };
   };
 
   const signInOffline = async (email: string, password: string): Promise<{ error: Error | null }> => {
@@ -222,13 +256,12 @@ export const useAuth = () => {
         token_type: 'bearer',
         user: mockUser,
       } as Session;
-      setAuthState({
-        user: mockUser,
-        session: mockSession,
-        isLoading: false,
+      applySession(mockSession);
+      setAuthState(prev => ({
+        ...prev,
         isSuperAdmin: cached.role === 'super_admin',
         role: cached.role as UserRole,
-      });
+      }));
       return { error: null };
     } catch (e) {
       return { error: new Error('Offline login failed') };
