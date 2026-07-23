@@ -290,7 +290,7 @@ const Dashboard = () => {
           </div>
 
           {/* Secondary Actions */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <Link to="/reports">
               <Card className="product-card h-full">
                 <CardContent className="flex flex-col items-center justify-center p-4 text-center">

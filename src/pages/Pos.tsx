@@ -597,7 +597,7 @@ const addToCart = async (productId: string) => {
             </TabsList>
 
             <TabsContent value="sale">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg flex items-center gap-2">
@@ -618,7 +618,7 @@ const addToCart = async (productId: string) => {
                       />
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-3 max-h-[60vh] overflow-y-auto">
+                  <CardContent className="space-y-3 max-h-[50vh] sm:max-h-[60vh] overflow-y-auto">
                     {Object.keys(groupedProducts).length === 0 ? (
                       <p className="text-sm text-muted-foreground">
                         {searchQuery ? `No ${isService ? 'services' : 'products'} match your search.` : labels.noItemsMessage}

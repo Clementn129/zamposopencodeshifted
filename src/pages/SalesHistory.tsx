@@ -963,7 +963,7 @@ const SalesHistory = () => {
                   placeholder="Receipt..."
                   value={receiptSearch}
                   onChange={(e) => setReceiptSearch(e.target.value)}
-                  className="w-[160px] h-8 pl-7 pr-7 text-sm"
+                  className="w-full max-w-[160px] h-8 pl-7 pr-7 text-sm"
                 />
                 {receiptSearch && (
                   <button onClick={() => setReceiptSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2">
@@ -992,7 +992,7 @@ const SalesHistory = () => {
               {/* Period Filter */}
               <div className="flex justify-end">
                 <Select value={period} onValueChange={(v) => setPeriod(v as FilterPeriod)}>
-                  <SelectTrigger className="w-[140px]">
+                  <SelectTrigger className="w-full max-w-[140px]">
                     <Calendar className="h-4 w-4 mr-2" />
                     <SelectValue />
                   </SelectTrigger>
@@ -1170,7 +1170,7 @@ const SalesHistory = () => {
               {/* Month/Year Selector */}
               <div className="flex gap-2 flex-wrap">
                 <Select value={selectedMonth.toString()} onValueChange={(v) => setSelectedMonth(parseInt(v))}>
-                  <SelectTrigger className="w-[140px]">
+                  <SelectTrigger className="w-full max-w-[140px]">
                     <Calendar className="h-4 w-4 mr-2" />
                     <SelectValue />
                   </SelectTrigger>
@@ -1181,7 +1181,7 @@ const SalesHistory = () => {
                   </SelectContent>
                 </Select>
                 <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
-                  <SelectTrigger className="w-[100px]">
+                  <SelectTrigger className="w-full max-w-[100px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

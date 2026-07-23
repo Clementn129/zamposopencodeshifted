@@ -360,7 +360,7 @@ const ReceiptModal = ({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm w-[calc(100%-2rem)]">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             <span>Receipt</span>
