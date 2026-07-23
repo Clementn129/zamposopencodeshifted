@@ -116,6 +116,10 @@ const ReceiptModal = ({
     if (typeof window !== "undefined") {
       window.localStorage.setItem(RECEIPT_SIZE_KEY, size);
     }
+    if (isAndroidApp) {
+      const paperWidth = size === "58mm" ? 58 : size === "80mm" ? 80 : 80;
+      (window as any).Android.setPaperWidth(paperWidth);
+    }
   }, [size]);
 
   const itemLabel = isService ? "Service" : "Item";
@@ -235,7 +239,68 @@ const ReceiptModal = ({
     `;
   };
 
+  const isAndroidApp = typeof window !== "undefined" && !!(window as any).Android;
+
+  const getEscPosText = (): string => {
+    const lines: string[] = [];
+    const center = "[C]";
+    const left = "[L]";
+    const right = "[R]";
+
+    lines.push(`${center}<font size='big'><b>${escapeHtml(businessName)}</b></font>`);
+    if (businessDetails?.tpin) lines.push(`${center}TPIN: ${escapeHtml(businessDetails.tpin)}`);
+    if (businessDetails?.phone) lines.push(`${center}Tel: ${escapeHtml(businessDetails.phone)}`);
+    if (businessDetails?.email) lines.push(`${center}${escapeHtml(businessDetails.email)}`);
+    if (businessDetails?.address) lines.push(`${center}${escapeHtml(businessDetails.address)}`);
+    lines.push(`${center}${new Date(date).toLocaleString()}`);
+    lines.push(`${center}Receipt #: ${receiptId.slice(-8).toUpperCase()}`);
+    lines.push(`${center}================================`);
+
+    if (customerName || customerTpin) {
+      if (customerName) lines.push(`${left}<b>Customer:</b> ${escapeHtml(customerName)}`);
+      if (customerTpin) lines.push(`${left}<b>Customer TPIN:</b> ${escapeHtml(customerTpin)}`);
+      lines.push(`${center}--------------------------------`);
+    }
+
+    items.forEach((item) => {
+      const lineTotal = (item.price * item.quantity).toFixed(2);
+      lines.push(`${left}${escapeHtml(item.name)}${item.notes ? ` (${escapeHtml(item.notes)})` : ""}`);
+      lines.push(`${left}  ${qtyPrefix}${item.quantity}${right}ZMW ${lineTotal}`);
+    });
+
+    lines.push(`${center}================================`);
+
+    if (taxAmount > 0) {
+      lines.push(`${left}Subtotal (excl.)${right}ZMW ${netSubtotal.toFixed(2)}`);
+      lines.push(`${left}${escapeHtml(taxLabel)}${right}ZMW ${taxAmount.toFixed(2)}`);
+    } else {
+      lines.push(`${left}Subtotal${right}ZMW ${subtotal.toFixed(2)}`);
+    }
+    if (discountAmount > 0) lines.push(`${left}Discount${right}-ZMW ${discountAmount.toFixed(2)}`);
+    lines.push(`${center}<b><font size='tall'>TOTAL: ZMW ${total.toFixed(2)}</font></b>`);
+    lines.push(`${left}Payment${right}${paymentMethod === "cash" ? "Cash" : paymentMethod === "mobile_money" ? "Mobile Money" : escapeHtml(paymentMethod)}`);
+    lines.push(`${center}================================`);
+    lines.push(`${center}<font size='small'>Thank you for your ${isService ? "business" : "purchase"}!</font>`);
+    lines.push(`${center}<font size='small'>Powered by ZamPOS</font>`);
+
+    return lines.join("\n");
+  };
+
   const handlePrint = () => {
+    if (isAndroidApp) {
+      const escPosText = getEscPosText();
+      const paperWidth = size === "58mm" ? 58 : size === "80mm" ? 80 : 80;
+      try {
+        const result = (window as any).Android.print(escPosText, paperWidth);
+        if (result && result.startsWith("ERROR")) {
+          alert("Print failed: " + result);
+        }
+      } catch (err) {
+        alert("Print failed: " + (err as Error).message);
+      }
+      return;
+    }
+
     const html = getReceiptHTML();
     const iframe = document.createElement("iframe");
     iframe.style.position = "fixed";
@@ -439,7 +504,7 @@ const ReceiptModal = ({
             <Download className="h-4 w-4 mr-1" /> Save
           </Button>
           <Button variant="outline" size="sm" onClick={handlePrint}>
-            <Printer className="h-4 w-4 mr-1" /> Print
+            <Printer className="h-4 w-4 mr-1" /> {isAndroidApp ? "Print Receipt" : "Print"}
           </Button>
           <Button variant="outline" size="sm" onClick={() => {
             const text = `Receipt from ${businessName}\nTotal: ZMW ${total.toFixed(2)}\nDate: ${new Date(date).toLocaleString()}\nReceipt #: ${receiptId.slice(-8).toUpperCase()}\n\nItems:\n${items.map(i => `${i.name} x${i.quantity} - ZMW ${(i.price * i.quantity).toFixed(2)}`).join("\n")}\n\nThank you!`;
