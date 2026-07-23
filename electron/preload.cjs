@@ -14,3 +14,49 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("update-downloaded", () => callback());
   },
 });
+
+contextBridge.exposeInMainWorld("Android", {
+  connectBluetooth: () => {
+    return ipcRenderer.sendSync("printer-connect-bluetooth");
+  },
+  connectUsb: () => {
+    return ipcRenderer.sendSync("printer-connect-usb");
+  },
+  connectTcp: (host, port) => {
+    return ipcRenderer.sendSync("printer-connect-tcp", host, port);
+  },
+  disconnect: () => {
+    ipcRenderer.sendSync("printer-disconnect");
+  },
+  isConnected: () => {
+    return ipcRenderer.sendSync("printer-is-connected");
+  },
+  print: (text, paperWidth) => {
+    return ipcRenderer.sendSync("printer-print", text, paperWidth || 80);
+  },
+  printRaw: (text) => {
+    return ipcRenderer.sendSync("printer-print", text, 80);
+  },
+  printAndCut: (text) => {
+    return ipcRenderer.sendSync("printer-print", text, 80);
+  },
+  getPairedPrinters: () => {
+    return ipcRenderer.sendSync("printer-list-usb");
+  },
+  getUsbPrinters: () => {
+    return ipcRenderer.sendSync("printer-list-usb");
+  },
+  setPaperWidth: (width) => {
+    ipcRenderer.sendSync("printer-set-paper-width", width);
+  },
+  getPaperWidth: () => {
+    return ipcRenderer.sendSync("printer-get-paper-width");
+  },
+  getConnectionType: () => {
+    return ipcRenderer.sendSync("printer-get-connection-type");
+  },
+  setConnectionType: (type) => {
+    ipcRenderer.sendSync("printer-set-connection-type", type);
+  },
+  openAppSettings: () => {},
+});

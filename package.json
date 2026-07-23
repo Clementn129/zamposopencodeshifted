@@ -88,6 +88,8 @@
     "date-fns": "^3.6.0",
     "electron-updater": "^6.6.1",
     "embla-carousel-react": "^8.6.0",
+    "escpos": "^3.0.0-alpha.6",
+    "escpos-usb": "^3.0.0-alpha.4",
     "input-otp": "^1.4.2",
     "jsbarcode": "^3.11.6",
     "jspdf": "^4.0.0",
