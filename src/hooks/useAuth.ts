@@ -18,6 +18,7 @@ interface AuthState {
   isLoading: boolean;
   isSuperAdmin: boolean;
   role: UserRole;
+  isPasswordRecovery: boolean;
 }
 
 export const useAuth = () => {
@@ -27,6 +28,7 @@ export const useAuth = () => {
     isLoading: true,
     isSuperAdmin: false,
     role: 'unknown',
+    isPasswordRecovery: false,
   });
 
   const initialCheckDone = useRef(false);
@@ -97,6 +99,11 @@ export const useAuth = () => {
           // Session recovered or fresh login — cancel any pending recovery
           clearRecoveryTimer();
           isRecoveringRef.current = false;
+          // If this is a PASSWORD_RECOVERY event, flag it so Auth page can show the reset form
+          if (event === 'PASSWORD_RECOVERY') {
+            setAuthState(prev => ({ ...prev, session, user: session.user, isLoading: false, isPasswordRecovery: true }));
+            return;
+          }
           applySession(session);
           setTimeout(async () => {
             const { role, isSuperAdmin } = await resolveRole(session.user.id);
@@ -292,11 +299,11 @@ export const useAuth = () => {
   /** Safe signOut — never throws, so callers can always navigate after. */
   const signOut = async () => {
     try {
+      setAuthState(prev => ({ ...prev, isPasswordRecovery: false }));
       const { error } = await supabase.auth.signOut();
       return { error };
     } catch (e) {
       console.warn('[useAuth] signOut threw:', e);
-      // Even if signOut fails, we should still redirect.
       return { error: e instanceof Error ? e : new Error('Sign out failed') };
     }
   };

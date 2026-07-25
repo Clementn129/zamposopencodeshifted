@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 const Auth = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { signIn, signInOffline, signUp, user, role } = useAuthContext();
+  const { signIn, signInOffline, signUp, user, role, isPasswordRecovery } = useAuthContext();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -27,6 +27,12 @@ const Auth = () => {
   const [cashierUsername, setCashierUsername] = useState('');
   const [cashierPin, setCashierPin] = useState('');
   const [resetEmail, setResetEmail] = useState('');
+  
+  // Password reset form
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
   
   // Login form
   const [loginEmail, setLoginEmail] = useState('');
@@ -54,12 +60,12 @@ const Auth = () => {
     }
   }, [searchParams]);
 
-  // Redirect if already logged in
+  // Redirect if already logged in (but NOT during password recovery)
   useEffect(() => {
-    if (!user || role === 'unknown') return;
+    if (!user || role === 'unknown' || isPasswordRecovery) return;
     if (role === 'cashier') navigate('/pos');
     else navigate('/dashboard');
-  }, [user, role, navigate]);
+  }, [user, role, navigate, isPasswordRecovery]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,6 +190,57 @@ const Auth = () => {
     }
   };
 
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    if (newPassword !== confirmNewPassword) {
+      toast({
+        variant: 'destructive',
+        title: 'Passwords do not match',
+        description: 'Please make sure both passwords are the same.',
+      });
+      setIsLoading(false);
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast({
+        variant: 'destructive',
+        title: 'Password too short',
+        description: 'Password must be at least 6 characters.',
+      });
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+
+      if (error) {
+        toast({
+          variant: 'destructive',
+          title: 'Reset Failed',
+          description: error.message,
+        });
+      } else {
+        setResetSuccess(true);
+        toast({
+          title: 'Password Updated',
+          description: 'Your password has been changed successfully.',
+        });
+      }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Something went wrong. Please try again.',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -271,6 +328,118 @@ const Auth = () => {
       setIsLoading(false);
     }
   };
+
+  // Password Recovery View — shown when user clicks the reset link in email
+  if (isPasswordRecovery && searchParams.get('reset') === 'true') {
+    if (resetSuccess) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+          <div className="w-full max-w-md animate-fade-in">
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
+                <Store className="w-8 h-8 text-primary-foreground" />
+              </div>
+              <h1 className="text-3xl font-display font-bold text-foreground">ZamPOS</h1>
+            </div>
+            <Card className="border-border/50 shadow-lg">
+              <CardContent className="pt-6 text-center space-y-4">
+                <p className="text-foreground font-medium">Password updated successfully!</p>
+                <Button variant="pos" className="w-full" onClick={async () => {
+                  await signOut();
+                  navigate('/auth');
+                }}>
+                  Sign In with New Password
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md animate-fade-in">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
+              <Store className="w-8 h-8 text-primary-foreground" />
+            </div>
+            <h1 className="text-3xl font-display font-bold text-foreground">ZamPOS</h1>
+            <p className="text-muted-foreground mt-2">Set your new password</p>
+          </div>
+
+          <Card className="border-border/50 shadow-lg">
+            <CardHeader>
+              <CardTitle className="text-xl">New Password</CardTitle>
+              <CardDescription>
+                Enter your new password below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="new-password">New Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="new-password"
+                      type={showNewPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      className="pl-10 pr-10"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                      minLength={6}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-new-password">Confirm Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="confirm-new-password"
+                      type={showNewPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      className="pl-10"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      required
+                      minLength={6}
+                    />
+                  </div>
+                </div>
+
+                <Button 
+                  type="submit" 
+                  variant="pos"
+                  className="w-full"
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    'Update Password'
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   // Forgot Password View
   if (showForgotPassword) {

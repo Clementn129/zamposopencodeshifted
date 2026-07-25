@@ -7,6 +7,7 @@ interface AuthContextType {
   session: Session | null;
   isLoading: boolean;
   isSuperAdmin: boolean;
+  isPasswordRecovery: boolean;
   role: UserRole;
   signUp: (email: string, password: string, fullName: string, businessName: string, phone?: string, address?: string, affiliateCode?: string) => Promise<{ data: any; error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
