@@ -72,8 +72,16 @@ const AffiliateAuth = () => {
             toast({ title: 'Welcome back!', description: 'Redirecting to your affiliate dashboard.' });
             navigate('/affiliate');
           } else {
-            toast({ variant: 'destructive', title: 'Not an Affiliate', description: 'This account is not registered as an affiliate. Please register first.' });
-            await supabase.auth.signOut();
+            // Check if there are pending affiliate details from a previous registration
+            const pending = localStorage.getItem('zampos_pending_affiliate');
+            if (pending) {
+              toast({ title: 'Completing your affiliate setup...' });
+              await completeAffiliateSetup(session.session.user.id);
+            } else {
+              // Not an affiliate yet — redirect to affiliate page to register
+              toast({ title: 'Welcome!', description: 'Set up your affiliate account to start earning.' });
+              navigate('/affiliate');
+            }
           }
         }
       }
@@ -100,6 +108,16 @@ const AffiliateAuth = () => {
       return;
     }
 
+    // Store payout details in localStorage for post-confirmation recovery
+    const payoutDetails = {
+      fullName: fullName.trim(),
+      phone: phone.trim() || null,
+      payoutMethod,
+      payoutNumber: payoutNumber.trim(),
+      payoutName: payoutName.trim() || null,
+    };
+    localStorage.setItem('zampos_pending_affiliate', JSON.stringify(payoutDetails));
+
     try {
       // Sign up the user (they get a business_owner role + business by default from the trigger)
       const { data, error } = await signUp(email, password, fullName.trim(), 'Affiliate Account');
@@ -114,43 +132,73 @@ const AffiliateAuth = () => {
         return;
       }
 
-      // If email confirmation required, navigate away; otherwise create affiliate profile immediately
+      // If email confirmation required, store details and tell user to check email
       if (data?.user?.identities?.length === 0) {
-        toast({ title: 'Check your email', description: 'Please confirm your email before setting up your affiliate account.' });
+        toast({ title: 'Check your email', description: 'Confirm your email, then log in to complete your affiliate setup.' });
         navigate('/affiliate-auth');
         return;
       }
+
       const sessionUser = data?.user ?? (await supabase.auth.getSession()).data?.session?.user;
       if (sessionUser) {
-        try {
-          const { data: codeData, error: codeErr } = await supabase.rpc('generate_affiliate_code');
-          if (codeErr) throw codeErr;
-
-          const { error: affErr } = await supabase
-            .from('affiliates')
-            .insert({
-              user_id: sessionUser.id,
-              affiliate_code: codeData,
-              status: 'active',
-              full_name: fullName.trim(),
-              phone: phone.trim() || null,
-              payout_method: payoutMethod,
-              payout_number: payoutNumber.trim(),
-              payout_name: payoutName.trim() || null,
-            });
-
-          if (affErr) throw affErr;
-
-          toast({ title: 'Welcome to the Affiliate Program!', description: 'Your account has been created.' });
-          navigate('/affiliate');
-        } catch (err: any) {
-          console.error('Error creating affiliate profile:', err);
-          toast({ variant: 'destructive', title: 'Error', description: 'Account created but affiliate setup failed. Please contact support.' });
-        }
+        await completeAffiliateSetup(sessionUser.id);
       }
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Something went wrong.' });
       setIsLoading(false);
+    }
+  };
+
+  // Complete affiliate setup (used after registration or after email confirmation login)
+  const completeAffiliateSetup = async (userId: string) => {
+    try {
+      // Retrieve stored payout details (or use current form state)
+      const stored = JSON.parse(localStorage.getItem('zampos_pending_affiliate') || '{}');
+      const details = {
+        fullName: stored.fullName || fullName.trim(),
+        phone: stored.phone || phone.trim() || null,
+        payoutMethod: stored.payoutMethod || payoutMethod,
+        payoutNumber: stored.payoutNumber || payoutNumber.trim(),
+        payoutName: stored.payoutName || payoutName.trim() || null,
+      };
+
+      const { data: codeData, error: codeErr } = await supabase.rpc('generate_affiliate_code');
+      if (codeErr) throw codeErr;
+
+      const { error: affErr } = await supabase
+        .from('affiliates')
+        .insert({
+          user_id: userId,
+          affiliate_code: codeData,
+          status: 'active',
+          full_name: details.fullName,
+          phone: details.phone,
+          payout_method: details.payoutMethod,
+          payout_number: details.payoutNumber,
+          payout_name: details.payoutName,
+        });
+
+      if (affErr) throw affErr;
+
+      // Clean up: delete the unwanted auto-created business
+      const { data: businesses } = await supabase
+        .from('businesses')
+        .select('id')
+        .eq('user_id', userId)
+        .limit(1);
+
+      if (businesses && businesses.length > 0) {
+        await supabase.from('businesses').delete().eq('id', businesses[0].id);
+      }
+
+      // Clean up localStorage
+      localStorage.removeItem('zampos_pending_affiliate');
+
+      toast({ title: 'Welcome to the Affiliate Program!', description: 'Your account has been created.' });
+      navigate('/affiliate');
+    } catch (err: any) {
+      console.error('Error creating affiliate profile:', err);
+      toast({ variant: 'destructive', title: 'Error', description: 'Account created but affiliate setup failed. Please contact support.' });
     }
   };
 

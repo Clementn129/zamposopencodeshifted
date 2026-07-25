@@ -56,7 +56,7 @@ const App = forwardRef<HTMLDivElement>((_, ref) => (
                 <Route path="/audit-log" element={<RequireOwner><AuditLog /></RequireOwner>} />
                 <Route path="/debtors" element={<RequireOwner><Debtors /></RequireOwner>} />
                 <Route path="/settings" element={<RequireOwner><Settings /></RequireOwner>} />
-                <Route path="/affiliate" element={<Affiliate />} />
+                <Route path="/affiliate" element={<RequireOwner><Affiliate /></RequireOwner>} />
                 <Route path="/affiliate-auth" element={<AffiliateAuth />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>

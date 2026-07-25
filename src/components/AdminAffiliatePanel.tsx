@@ -50,7 +50,7 @@ interface Commission {
 }
 
 const COMMISSION_RATE = 0.30; // 30%
-const SUBSCRIPTION_PRICE = 100; // ZMW
+const DEFAULT_SUBSCRIPTION_PRICE = 100; // ZMW fallback
 
 const AdminAffiliatePanel = () => {
   const { toast } = useToast();
@@ -59,10 +59,21 @@ const AdminAffiliatePanel = () => {
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAffiliate, setSelectedAffiliate] = useState<AffiliateWithProfile | null>(null);
+  const [subscriptionPrice, setSubscriptionPrice] = useState(DEFAULT_SUBSCRIPTION_PRICE);
 
   const fetchData = async () => {
     setLoading(true);
     try {
+      // Fetch subscription price from app_settings
+      const { data: settingsData } = await supabase
+        .from('app_settings')
+        .select('subscription_price')
+        .limit(1)
+        .maybeSingle();
+      if (settingsData?.subscription_price) {
+        setSubscriptionPrice(Number(settingsData.subscription_price));
+      }
+
       // Fetch affiliates
       const { data: affData, error: affErr } = await supabase
         .from('affiliates')
@@ -164,15 +175,20 @@ const AdminAffiliatePanel = () => {
 
       if (error) throw error;
 
-      // Update affiliate's total earnings
-      const affiliate = affiliates.find(a => a.id === commission.affiliate_id);
-      if (affiliate) {
+      // Atomically update total_earnings by reading fresh from DB
+      const { data: freshAffiliate } = await supabase
+        .from('affiliates')
+        .select('total_earnings')
+        .eq('id', commission.affiliate_id)
+        .single();
+
+      if (freshAffiliate) {
         await supabase
           .from('affiliates')
           .update({
-            total_earnings: Number(affiliate.total_earnings) + Number(commission.amount),
+            total_earnings: Number(freshAffiliate.total_earnings) + Number(commission.amount),
           })
-          .eq('id', affiliate.id);
+          .eq('id', commission.affiliate_id);
       }
 
       toast({ title: 'Marked as Paid' });
@@ -191,29 +207,31 @@ const AdminAffiliatePanel = () => {
       // Get all active referrals
       const activeReferrals = referrals.filter(r => r.business?.subscription_status === 'active');
 
-      let created = 0;
-      for (const referral of activeReferrals) {
-        // Check if commission already exists for this month
-        const existing = commissions.find(
-          c => c.referral_id === referral.id && c.commission_month === monthStr
-        );
+      // Build commission records for upsert
+      const newCommissions = activeReferrals.map(referral => ({
+        affiliate_id: referral.affiliate_id,
+        referral_id: referral.id,
+        amount: subscriptionPrice * COMMISSION_RATE,
+        commission_month: monthStr,
+        status: 'pending' as const,
+      }));
 
-        if (!existing) {
-          const { error } = await supabase
-            .from('affiliate_commissions')
-            .insert({
-              affiliate_id: referral.affiliate_id,
-              referral_id: referral.id,
-              amount: SUBSCRIPTION_PRICE * COMMISSION_RATE,
-              commission_month: monthStr,
-              status: 'pending',
-            });
-
-          if (!error) created++;
-        }
+      if (newCommissions.length === 0) {
+        toast({ title: 'No Active Referrals', description: 'No active referrals to generate commissions for.' });
+        return;
       }
 
-      toast({ title: 'Commissions Generated', description: `Created ${created} new commission records.` });
+      // Use upsert with ON CONFLICT to safely handle duplicates
+      const { error, count } = await supabase
+        .from('affiliate_commissions')
+        .upsert(newCommissions, {
+          onConflict: 'referral_id,commission_month',
+          ignoreDuplicates: true,
+        });
+
+      if (error) throw error;
+
+      toast({ title: 'Commissions Generated', description: `Processed ${newCommissions.length} referrals.` });
       await fetchData();
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Failed', description: e?.message ?? 'Could not generate' });

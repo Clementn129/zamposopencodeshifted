@@ -25,7 +25,6 @@ export interface AffiliateReferral {
     id: string;
     name: string;
     subscription_status: 'trial' | 'active' | 'expired' | 'locked';
-    subscription_expires_at: string | null;
     created_at: string;
   };
 }
@@ -202,23 +201,5 @@ export const validateAffiliateCode = async (code: string): Promise<string | null
   } catch (e) {
     console.error('Error validating affiliate code:', e);
     return null;
-  }
-};
-
-// Function to create referral after successful registration
-export const createAffiliateReferral = async (affiliateId: string, businessId: string) => {
-  try {
-    const { error } = await supabase
-      .from('affiliate_referrals')
-      .insert({
-        affiliate_id: affiliateId,
-        business_id: businessId,
-      });
-
-    if (error) throw error;
-    return { error: null };
-  } catch (e: any) {
-    console.error('Error creating referral:', e);
-    return { error: e };
   }
 };
