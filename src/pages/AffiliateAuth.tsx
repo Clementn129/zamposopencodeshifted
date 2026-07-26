@@ -211,7 +211,7 @@ const AffiliateAuth = () => {
             <Wallet className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-3xl font-display font-bold text-foreground">ZamPOS Affiliates</h1>
-          <p className="text-muted-foreground mt-2">Earn K30 per active client every month</p>
+          <p className="text-muted-foreground mt-2">Earn K20 per business you onboard</p>
         </div>
 
         <Card className="border-border/50 shadow-lg">
@@ -257,7 +257,7 @@ const AffiliateAuth = () => {
               <TabsContent value="register" className="mt-0">
                 <CardTitle className="text-xl mb-1">Become an Affiliate</CardTitle>
                 <CardDescription className="mb-6">
-                  Earn <span className="text-primary font-semibold">K30/month</span> for every active paying client you refer
+                  Earn <span className="text-primary font-semibold">K20</span> for every business you refer that signs up
                 </CardDescription>
 
                 <form onSubmit={handleRegister} className="space-y-4">
@@ -333,7 +333,7 @@ const AffiliateAuth = () => {
                 </form>
 
                 <p className="text-xs text-muted-foreground text-center mt-4">
-                  30% recurring commission (K30) per active client
+                  20% one-time commission (K20) per referral
                 </p>
               </TabsContent>
             </CardContent>

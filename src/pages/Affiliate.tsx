@@ -90,8 +90,8 @@ const Affiliate = () => {
                 </div>
                 <CardTitle className="text-2xl">Become an Affiliate</CardTitle>
                 <CardDescription className="text-base max-w-md mx-auto">
-                  Earn <span className="text-primary font-semibold">30% commission</span> for every active paying client you refer. 
-                  Commissions are recurring every month while your referrals remain active.
+                  Earn <span className="text-primary font-semibold">20% commission</span> for every business you refer. 
+                  One-time payment when they sign up.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -105,8 +105,8 @@ const Affiliate = () => {
                     <p className="text-sm text-muted-foreground">Share your link with other businesses.</p>
                   </div>
                   <div className="bg-secondary p-4 rounded-lg">
-                    <h3 className="font-semibold mb-1">3. Earn Monthly</h3>
-                    <p className="text-sm text-muted-foreground">Earn 30% of their subscription each month.</p>
+                    <h3 className="font-semibold mb-1">3. Earn</h3>
+                    <p className="text-sm text-muted-foreground">Get 20% of their first subscription payment.</p>
                   </div>
                 </div>
 
@@ -302,11 +302,11 @@ const Affiliate = () => {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Commission History</CardTitle>
-              <CardDescription>Your monthly earnings (30% of active subscriptions)</CardDescription>
+              <CardDescription>Your earnings from referred businesses (20% one-time)</CardDescription>
             </CardHeader>
             <CardContent>
               {commissions.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">No commissions yet. Commissions appear when referrals become paying customers.</p>
+                <p className="text-muted-foreground text-center py-8">No commissions yet. Commissions appear when your referrals sign up.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>

@@ -49,7 +49,7 @@ interface Commission {
   paid_at: string | null;
 }
 
-const COMMISSION_RATE = 0.30; // 30%
+const COMMISSION_RATE = 0.20; // 20% one-time per referral
 const DEFAULT_SUBSCRIPTION_PRICE = 100; // ZMW fallback
 
 const AdminAffiliatePanel = () => {
@@ -198,17 +198,21 @@ const AdminAffiliatePanel = () => {
     }
   };
 
-  const generateMonthlyCommissions = async () => {
+  const generateOneTimeCommissions = async () => {
     try {
-      const currentMonth = new Date();
-      currentMonth.setDate(1);
-      const monthStr = format(currentMonth, 'yyyy-MM-dd');
+      // Find referrals that have NO commission record yet (one-time per referral)
+      const referralIdsWithCommissions = new Set(commissions.map(c => c.referral_id));
+      const unpaidReferrals = referrals.filter(r => !referralIdsWithCommissions.has(r.id));
 
-      // Get all active referrals
-      const activeReferrals = referrals.filter(r => r.business?.subscription_status === 'active');
+      if (unpaidReferrals.length === 0) {
+        toast({ title: 'No New Referrals', description: 'All referrals already have commission records.' });
+        return;
+      }
 
-      // Build commission records for upsert
-      const newCommissions = activeReferrals.map(referral => ({
+      const now = new Date();
+      const monthStr = format(new Date(now.getFullYear(), now.getMonth(), 1), 'yyyy-MM-dd');
+
+      const newCommissions = unpaidReferrals.map(referral => ({
         affiliate_id: referral.affiliate_id,
         referral_id: referral.id,
         amount: subscriptionPrice * COMMISSION_RATE,
@@ -216,22 +220,13 @@ const AdminAffiliatePanel = () => {
         status: 'pending' as const,
       }));
 
-      if (newCommissions.length === 0) {
-        toast({ title: 'No Active Referrals', description: 'No active referrals to generate commissions for.' });
-        return;
-      }
-
-      // Use upsert with ON CONFLICT to safely handle duplicates
-      const { error, count } = await supabase
+      const { error } = await supabase
         .from('affiliate_commissions')
-        .upsert(newCommissions, {
-          onConflict: 'referral_id,commission_month',
-          ignoreDuplicates: true,
-        });
+        .insert(newCommissions);
 
       if (error) throw error;
 
-      toast({ title: 'Commissions Generated', description: `Processed ${newCommissions.length} referrals.` });
+      toast({ title: 'Commissions Generated', description: `Created ${newCommissions.length} one-time commission(s).` });
       await fetchData();
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Failed', description: e?.message ?? 'Could not generate' });
@@ -347,8 +342,8 @@ const AdminAffiliatePanel = () => {
 
       {/* Actions */}
       <div className="flex gap-2">
-        <Button variant="pos" onClick={generateMonthlyCommissions}>
-          <DollarSign className="h-4 w-4 mr-2" /> Generate Monthly Commissions
+        <Button variant="pos" onClick={generateOneTimeCommissions}>
+          <DollarSign className="h-4 w-4 mr-2" /> Generate Commissions for New Referrals
         </Button>
       </div>
 
