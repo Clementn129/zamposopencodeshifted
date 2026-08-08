@@ -222,6 +222,17 @@ const addToCart = async (productId: string) => {
     }
   }, { enabled: activeTab === "sale" });
 
+  // Auto-focus the search box so keyboard-wedge barcode scanners work on
+  // Android without the user tapping/typing first (scanner keystrokes only
+  // reach the page when an input field has focus).
+  useEffect(() => {
+    if (activeTab !== "sale") return;
+    const t = setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 200);
+    return () => clearTimeout(t);
+  }, [activeTab, productsLoading]);
+
 
   const decQty = async (productId: string) => {
     const existing = cart.find((l) => l.productId === productId);
