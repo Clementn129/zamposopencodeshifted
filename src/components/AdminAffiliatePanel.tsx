@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import { PAYMENT_DETAILS } from '@/lib/paymentDetails';
 
 interface AffiliateWithProfile {
   id: string;
@@ -50,7 +51,8 @@ interface Commission {
 }
 
 const COMMISSION_RATE = 0.20; // 20% one-time per referral
-const DEFAULT_SUBSCRIPTION_PRICE = 100; // ZMW fallback
+// Affiliate commission is based on the lowest pricing tier (1 cashier).
+const SUBSCRIPTION_PRICE_ZMW = PAYMENT_DETAILS.pricePerMonthZmw;
 
 const AdminAffiliatePanel = () => {
   const { toast } = useToast();
@@ -59,21 +61,10 @@ const AdminAffiliatePanel = () => {
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAffiliate, setSelectedAffiliate] = useState<AffiliateWithProfile | null>(null);
-  const [subscriptionPrice, setSubscriptionPrice] = useState(DEFAULT_SUBSCRIPTION_PRICE);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch subscription price from app_settings
-      const { data: settingsData } = await supabase
-        .from('app_settings')
-        .select('subscription_price')
-        .limit(1)
-        .maybeSingle();
-      if (settingsData?.subscription_price) {
-        setSubscriptionPrice(Number(settingsData.subscription_price));
-      }
-
       // Fetch affiliates
       const { data: affData, error: affErr } = await supabase
         .from('affiliates')
@@ -215,7 +206,7 @@ const AdminAffiliatePanel = () => {
       const newCommissions = unpaidReferrals.map(referral => ({
         affiliate_id: referral.affiliate_id,
         referral_id: referral.id,
-        amount: subscriptionPrice * COMMISSION_RATE,
+        amount: SUBSCRIPTION_PRICE_ZMW * COMMISSION_RATE,
         commission_month: monthStr,
         status: 'pending' as const,
       }));

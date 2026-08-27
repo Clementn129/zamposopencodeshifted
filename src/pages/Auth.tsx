@@ -838,7 +838,7 @@ const Auth = () => {
                 </form>
                 
                 <p className="text-xs text-muted-foreground text-center mt-4">
-                  3 days free, then ZMW 100/month
+                  3 days free, then starting from ZMW 200/month
                 </p>
 
                 <div className="mt-4 pt-4 border-t border-border text-center">
