@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, DollarSign, Link2, Loader2, Users, UserCheck, Wallet, CheckCircle2, Clock } from 'lucide-react';
+import { ArrowLeft, Copy, DollarSign, Link2, Loader2, Users, UserCheck, Wallet, CheckCircle2, Clock, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ConnectionStatus from '@/components/ConnectionStatus';
 import LockScreen from '@/components/LockScreen';
 import { useAuthContext } from '@/contexts/AuthContext';
@@ -19,9 +22,18 @@ const Affiliate = () => {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuthContext();
   const { business, isLoading: bizLoading, refetch, checkSubscriptionStatus } = useBusiness(user?.id);
-  const { affiliate, referrals, commissions, stats, isLoading: affLoading, becomeAffiliate, getReferralLink } = useAffiliate(user?.id);
+  const { affiliate, referrals, commissions, stats, isLoading: affLoading, becomeAffiliate, updateAffiliate, getReferralLink } = useAffiliate(user?.id);
   const { isLocked } = checkSubscriptionStatus();
   const [registering, setRegistering] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    fullName: '',
+    phone: '',
+    payoutMethod: '',
+    payoutNumber: '',
+    payoutName: '',
+  });
 
   useEffect(() => {
     if (!authLoading && !user) navigate('/auth');
@@ -41,6 +53,35 @@ const Affiliate = () => {
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     toast({ title: 'Copied!', description: `${label} copied to clipboard.` });
+  };
+
+  const openEdit = () => {
+    setForm({
+      fullName: affiliate?.full_name || '',
+      phone: affiliate?.phone || '',
+      payoutMethod: affiliate?.payout_method || '',
+      payoutNumber: affiliate?.payout_number || '',
+      payoutName: affiliate?.payout_name || '',
+    });
+    setEditOpen(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const { error } = await updateAffiliate({
+      full_name: form.fullName,
+      phone: form.phone,
+      payout_method: form.payoutMethod,
+      payout_number: form.payoutNumber,
+      payout_name: form.payoutName,
+    });
+    setSaving(false);
+    if (error) {
+      toast({ variant: 'destructive', title: 'Failed', description: error.message || 'Could not update details.' });
+    } else {
+      toast({ title: 'Details updated', description: 'Your details have been saved.' });
+      setEditOpen(false);
+    }
   };
 
   if (authLoading || bizLoading || affLoading) {
@@ -152,9 +193,14 @@ const Affiliate = () => {
         <main className="p-4 max-w-4xl mx-auto space-y-4">
           {/* Affiliate Info */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Your Affiliate Details</CardTitle>
-              <CardDescription>Share these with potential referrals</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="text-lg">Your Affiliate Details</CardTitle>
+                <CardDescription>Share these with potential referrals</CardDescription>
+              </div>
+              <Button variant="outline" size="sm" onClick={openEdit}>
+                <Pencil className="h-4 w-4 mr-2" /> Edit Details
+              </Button>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -186,6 +232,22 @@ const Affiliate = () => {
                   </Button>
                 </div>
               </div>
+              {(affiliate.full_name || affiliate.phone) && (
+                <div className="bg-secondary rounded-lg p-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {affiliate.full_name && (
+                    <div>
+                      <label className="text-xs text-muted-foreground">Full Name</label>
+                      <p className="text-sm font-medium">{affiliate.full_name}</p>
+                    </div>
+                  )}
+                  {affiliate.phone && (
+                    <div>
+                      <label className="text-xs text-muted-foreground">Phone</label>
+                      <p className="text-sm font-medium">{affiliate.phone}</p>
+                    </div>
+                  )}
+                </div>
+              )}
               {affiliate.payout_method && (
                 <div className="bg-secondary rounded-lg p-3">
                   <label className="text-sm font-medium text-muted-foreground">Payout Details</label>
@@ -345,6 +407,54 @@ const Affiliate = () => {
           </Card>
         </main>
       </div>
+
+      {/* Edit Details Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Your Details</DialogTitle>
+            <DialogDescription>
+              Update your personal or payout details. Changes apply to future payouts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">Full Name</Label>
+              <Input id="edit-name" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} placeholder="John Banda" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-phone">Phone</Label>
+              <Input id="edit-phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="0977123456" />
+            </div>
+            <div className="space-y-2">
+              <Label>Payout Method</Label>
+              <Select value={form.payoutMethod} onValueChange={(v) => setForm({ ...form, payoutMethod: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select mobile money provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="airtel_money">Airtel Money</SelectItem>
+                  <SelectItem value="mtn_money">MTN Money</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-number">Payout Number</Label>
+              <Input id="edit-number" value={form.payoutNumber} onChange={(e) => setForm({ ...form, payoutNumber: e.target.value })} placeholder="Mobile money number" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-payout-name">Account Name</Label>
+              <Input id="edit-payout-name" value={form.payoutName} onChange={(e) => setForm({ ...form, payoutName: e.target.value })} placeholder="Name on the account" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

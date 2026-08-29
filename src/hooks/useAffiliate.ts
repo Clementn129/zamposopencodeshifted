@@ -167,6 +167,31 @@ export const useAffiliate = (userId?: string) => {
     }
   };
 
+  const updateAffiliate = async (updates: Partial<Pick<Affiliate, 'full_name' | 'phone' | 'payout_method' | 'payout_number' | 'payout_name'>>) => {
+    if (!userId || !affiliate) return { error: new Error('Affiliate not found') };
+
+    try {
+      const payload: Record<string, string | null> = {};
+      if (updates.full_name !== undefined) payload.full_name = updates.full_name?.trim() || null;
+      if (updates.phone !== undefined) payload.phone = updates.phone?.trim() || null;
+      if (updates.payout_method !== undefined) payload.payout_method = updates.payout_method || null;
+      if (updates.payout_number !== undefined) payload.payout_number = updates.payout_number?.trim() || null;
+      if (updates.payout_name !== undefined) payload.payout_name = updates.payout_name?.trim() || null;
+
+      const { error } = await supabase
+        .from('affiliates')
+        .update(payload)
+        .eq('id', affiliate.id);
+
+      if (error) throw error;
+
+      await fetchAffiliate();
+      return { error: null };
+    } catch (e: any) {
+      return { error: e };
+    }
+  };
+
   const getReferralLink = () => {
     if (!affiliate) return '';
     return `${window.location.origin}/auth?ref=${affiliate.affiliate_code}`;
@@ -179,6 +204,7 @@ export const useAffiliate = (userId?: string) => {
     stats,
     isLoading,
     becomeAffiliate,
+    updateAffiliate,
     getReferralLink,
     refetch: fetchAffiliate,
   };
