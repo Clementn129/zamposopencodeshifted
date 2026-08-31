@@ -48,11 +48,27 @@ const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdi
     const doc = new jsPDF();
     const w = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    const footH = 16;
+    const bottom = pageH - footH;
     let y = 15;
 
+    const drawAccentBar = () => {
+      doc.setFillColor(37, 99, 235); // blue-600
+      doc.rect(0, 0, w, 4, 'F');
+    };
+
+    // Move to a fresh page (used when the current one would overflow).
+    const ensureSpace = (needed: number) => {
+      if (y + needed > bottom) {
+        doc.addPage();
+        y = 20;
+        drawAccentBar();
+      }
+    };
+
     // === HEADER WITH ACCENT BAR ===
-    doc.setFillColor(37, 99, 235); // blue-600
-    doc.rect(0, 0, w, 4, 'F');
+    drawAccentBar();
 
     // Logo
     if (businessDetails.logoUrl) {
@@ -146,9 +162,10 @@ const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdi
     // Rows
     doc.setTextColor(30, 30, 30);
     items.forEach((item, idx) => {
+      ensureSpace(10);
       if (idx % 2 === 0) {
         doc.setFillColor(249, 250, 251);
-        doc.rect(14, y - 4, w - 28, 8, 'F');
+        doc.rect(margin, y - 4, w - (margin * 2), 8, 'F');
       }
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8.5);
@@ -162,6 +179,7 @@ const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdi
       y += 8;
     });
 
+    ensureSpace(30);
     y += 4;
 
     // === TOTALS BOX ===
@@ -205,13 +223,14 @@ const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdi
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(80, 80, 80);
-      doc.text("NOTES / TERMS", 14, y);
+      const noteLines = doc.splitTextToSize(quotation.notes, w - 28);
+      ensureSpace(noteLines.length * 3 + 12);
+      doc.text("NOTES / TERMS", margin, y);
       y += 5;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(100, 100, 100);
-      const lines = doc.splitTextToSize(quotation.notes, w - 28);
-      doc.text(lines, 14, y);
+      doc.text(noteLines, margin, y);
     }
 
     // Footer
