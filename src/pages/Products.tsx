@@ -85,6 +85,7 @@ const Products = () => {
   } = useProductCategories(business?.id);
 
   const [query, setQuery] = useState("");
+  const [stockFilter, setStockFilter] = useState<'all' | 'low' | 'out'>('all');
   const [displayLimit, setDisplayLimit] = useState(200);
   const [open, setOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
@@ -138,15 +139,46 @@ const Products = () => {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return topLevel;
-    return topLevel.filter((p) => {
+    const { parentIds, sellableIds } = topLevel.reduce<{
+      parentIds: Set<string>;
+      sellableIds: Set<string>;
+    }>(
+      (acc, p) => {
+        const vars = variantsByParent[p.id] ?? [];
+        if (vars.length > 0) {
+          acc.parentIds.add(p.id);
+          vars.forEach((v) => acc.sellableIds.add(v.id));
+        } else if (p.itemType !== 'service') {
+          acc.sellableIds.add(p.id);
+        }
+        return acc;
+      },
+      { parentIds: new Set(), sellableIds: new Set() }
+    );
+
+    const matchesStock = (p: Product): boolean => {
+      if (stockFilter === 'all') return true;
+      if (p.itemType === 'service') return false;
+      const ids = parentIds.has(p.id) ? (variantsByParent[p.id] ?? []).map((v) => v.id) : [p.id];
+      return ids.some((id) => {
+        const prod = products.find((pp) => pp.id === id);
+        if (!prod) return false;
+        const stock = prod.stock ?? 0;
+        if (stockFilter === 'out') return stock <= 0;
+        return stock > 0 && stock <= (prod.minimumStock ?? 5);
+      });
+    };
+
+    const base = stockFilter === 'all' ? topLevel : topLevel.filter(matchesStock);
+    if (!q) return base;
+    return base.filter((p) => {
       if (p.name.toLowerCase().includes(q)) return true;
       if ((p.category ?? "").toLowerCase().includes(q)) return true;
       if ((p.barcode ?? "").toLowerCase().includes(q)) return true;
       const vars = variantsByParent[p.id] ?? [];
       return vars.some((v) => (v.variantLabel ?? "").toLowerCase().includes(q));
     });
-  }, [topLevel, variantsByParent, query]);
+  }, [topLevel, variantsByParent, query, stockFilter, products]);
 
   const groupedProducts = useMemo(() => {
     const groups: Record<string, Product[]> = {};
@@ -348,26 +380,40 @@ const Products = () => {
 
   const deactivate = async (p: Product) => {
     try {
+      const variants = variantsByParent[p.id] ?? [];
+      const activeVariants = variants.filter((v) => v.isActive);
+
       if (isOnline) {
+        // Deactivate active variants first so the DB trigger allows parent deactivation
+        if (activeVariants.length > 0) {
+          const ids = activeVariants.map((v) => v.id);
+          const { error: varErr } = await supabase
+            .from("products")
+            .update({ is_active: false })
+            .in("id", ids);
+          if (varErr) throw varErr;
+        }
         const { error } = await supabase.from("products").update({ is_active: false }).eq("id", p.id);
         if (error) throw error;
       } else {
         // Offline: update local cache and queue
         const cached = await getCachedProducts(business!.id);
-        const idx = cached.findIndex((x) => x.id === p.id);
-        if (idx >= 0) {
-          cached[idx].isActive = false;
-          await cacheProducts(cached);
+        const idsToDeactivate = [p.id, ...activeVariants.map((v) => v.id)];
+        for (const id of idsToDeactivate) {
+          const idx = cached.findIndex((x) => x.id === id);
+          if (idx >= 0) cached[idx].isActive = false;
+          await queuePendingOp({
+            id: generateOfflineId(),
+            businessId: business!.id,
+            type: 'product_deactivate',
+            payload: { productId: id },
+            createdAt: new Date().toISOString(),
+          });
         }
-        await queuePendingOp({
-          id: generateOfflineId(),
-          businessId: business!.id,
-          type: 'product_deactivate',
-          payload: { productId: p.id },
-          createdAt: new Date().toISOString(),
-        });
+        await cacheProducts(cached);
       }
-      toast({ title: "Removed" });
+      const count = activeVariants.length;
+      toast({ title: "Removed", description: count > 0 ? `${count + 1} items removed.` : undefined });
       await refetch();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not remove";
@@ -793,7 +839,7 @@ const Products = () => {
 
         <main className="p-4 max-w-4xl mx-auto space-y-4">
           {/* Inventory dashboard */}
-          <InventoryDashboard products={products} stockOnly={isService} />
+          <InventoryDashboard products={products} stockOnly={isService} activeFilter={stockFilter} onFilterChange={setStockFilter} />
 
           {!isCashier && business?.id && (
             <PendingStockRequests
@@ -813,7 +859,13 @@ const Products = () => {
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by name, category or variant"
+                placeholder={
+                  stockFilter === 'low'
+                    ? "Searching low stock — type name, category or variant"
+                    : stockFilter === 'out'
+                      ? "Searching out of stock — type name, category or variant"
+                      : "Search by name, category or variant"
+                }
               />
 
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
