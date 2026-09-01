@@ -64,6 +64,7 @@ const Auth = () => {
   useEffect(() => {
     if (!user || role === 'unknown' || isPasswordRecovery) return;
     if (role === 'cashier') navigate('/pos');
+    else if (role === 'kitchen_staff' || role === 'manager') navigate('/kitchen');
     else navigate('/dashboard');
   }, [user, role, navigate, isPasswordRecovery]);
 
@@ -143,7 +144,7 @@ const Auth = () => {
       const { error: signInErr } = await signIn(email, password);
       if (signInErr) throw signInErr;
 
-      toast({ title: 'Signed in', description: 'Welcome to the till.' });
+      toast({ title: 'Signed in', description: 'Welcome.' });
       navigate('/pos');
     } catch (err) {
       toast({
@@ -292,7 +293,8 @@ const Auth = () => {
         registerBusinessName.trim(),
         registerPhone.trim() || undefined,
         registerAddress.trim() || undefined,
-        validAffiliateId ? affiliateCode.trim() : undefined
+        validAffiliateId ? affiliateCode.trim() : undefined,
+        registerBusinessType || undefined
       );
       
       if (error) {

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Building2, Mail, MapPin, Phone, Save, Loader2, Store, Briefcase, Upload, X, Image, Receipt, Hash } from 'lucide-react';
+import { ArrowLeft, Building2, Mail, MapPin, Phone, Save, Loader2, Store, Briefcase, Upload, X, Image, Receipt, Hash, Utensils } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { generateOfflineId, queuePendingOp } from '@/lib/offlineStorage';
 import CashiersManager from '@/components/CashiersManager';
+import DiningTablesManager from '@/components/DiningTablesManager';
 
 const RECEIPT_SIZE_KEY = 'zampos.receiptSize';
 type ReceiptSizeSetting = '58mm' | '80mm' | 'a4';
@@ -27,7 +28,7 @@ const Settings = () => {
   const { isOnline } = useOnlineStatus();
   const { user, isLoading: authLoading } = useAuthContext();
   const { business, isLoading: bizLoading, refetch, checkSubscriptionStatus } = useBusiness(user?.id);
-  const { businessType, setBusinessType, isService } = useBusinessType(business?.id);
+  const { businessType, setBusinessType, isService, isRestaurant } = useBusinessType(business?.id, business?.businessType);
   const { isLocked } = checkSubscriptionStatus();
 
   const [saving, setSaving] = useState(false);
@@ -51,6 +52,16 @@ const Settings = () => {
     const saved = window.localStorage.getItem(RECEIPT_SIZE_KEY);
     return saved === '58mm' || saved === '80mm' || saved === 'a4' ? saved : '80mm';
   });
+
+  const handleBusinessTypeChange = async (value: BusinessType) => {
+    setBusinessType(value);
+    if (!business?.id) return;
+    try {
+      await supabase.from('businesses').update({ business_type: value, updated_at: new Date().toISOString() }).eq('id', business.id);
+    } catch {
+      // non-critical — localStorage keeps working; server syncs next change
+    }
+  };
 
   useEffect(() => {
     window.localStorage.setItem(RECEIPT_SIZE_KEY, receiptSize);
@@ -251,8 +262,8 @@ const Settings = () => {
             <CardContent>
               <RadioGroup
                 value={businessType}
-                onValueChange={(value) => setBusinessType(value as BusinessType)}
-                className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+                onValueChange={(value) => handleBusinessTypeChange(value as BusinessType)}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
               >
                 <div className="flex items-center space-x-3 bg-secondary rounded-lg p-4 cursor-pointer hover:bg-secondary/80 transition">
                   <RadioGroupItem value="retail" id="retail" />
@@ -284,6 +295,16 @@ const Settings = () => {
                     <div>
                       <p className="font-medium">Both (Hybrid)</p>
                       <p className="text-xs text-muted-foreground">Sell products and services together</p>
+                    </div>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-3 bg-secondary rounded-lg p-4 cursor-pointer hover:bg-secondary/80 transition">
+                  <RadioGroupItem value="restaurant" id="restaurant" />
+                  <Label htmlFor="restaurant" className="flex items-center gap-2 cursor-pointer flex-1">
+                    <Utensils className="h-5 w-5 text-primary" />
+                    <div>
+                      <p className="font-medium">Restaurant / Food</p>
+                      <p className="text-xs text-muted-foreground">Menu, orders, kitchen & tables</p>
                     </div>
                   </Label>
                 </div>
@@ -530,9 +551,14 @@ const Settings = () => {
             </CardContent>
           </Card>
 
+          {/* Dining Tables (restaurant only) */}
+          {isRestaurant && business?.id ? (
+            <DiningTablesManager businessId={business.id} />
+          ) : null}
+
           {/* Cashiers */}
           {business?.id ? (
-            <CashiersManager businessId={business.id} paymentCode={business.paymentCode} planTier={business.planTier} />
+            <CashiersManager businessId={business.id} paymentCode={business.paymentCode} planTier={business.planTier} isRestaurant={isRestaurant} />
           ) : null}
         </main>
       </div>

@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -16,7 +17,14 @@ interface Cashier {
   is_active: boolean;
   last_login_at: string | null;
   created_at: string;
+  role: string;
 }
+
+const ROLE_LABEL: Record<string, string> = {
+  cashier: 'Cashier',
+  kitchen_staff: 'Kitchen',
+  manager: 'Manager',
+};
 
 import { getPricingTier, getPricingTierByLabel } from '@/lib/paymentDetails';
 
@@ -24,9 +32,10 @@ interface Props {
   businessId: string;
   paymentCode: string;
   planTier?: string | null;
+  isRestaurant?: boolean;
 }
 
-const CashiersManager = ({ businessId, paymentCode, planTier }: Props) => {
+const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = false }: Props) => {
   const { toast } = useToast();
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +46,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier }: Props) => {
   const [newUsername, setNewUsername] = useState('');
   const [newName, setNewName] = useState('');
   const [newPin, setNewPin] = useState('');
+  const [newRole, setNewRole] = useState('cashier');
 
   // Reset PIN dialog
   const [resetTarget, setResetTarget] = useState<Cashier | null>(null);
@@ -46,7 +56,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier }: Props) => {
     setLoading(true);
     const { data, error } = await supabase
       .from('business_cashiers')
-      .select('id, username, display_name, is_active, last_login_at, created_at')
+      .select('id, username, display_name, is_active, last_login_at, created_at, role')
       .eq('business_id', businessId)
       .order('created_at', { ascending: true });
     if (error) {
@@ -99,10 +109,10 @@ const CashiersManager = ({ businessId, paymentCode, planTier }: Props) => {
     }
     setBusy(true);
     try {
-      await callFn({ action: 'create', username, pin: newPin, display_name: newName.trim() || null });
-      toast({ title: 'Cashier added', description: `${username} can now sign in with their PIN.` });
+      await callFn({ action: 'create', username, pin: newPin, display_name: newName.trim() || null, role: newRole });
+      toast({ title: 'Staff added', description: `${username} can now sign in with their PIN.` });
       setCreateOpen(false);
-      setNewUsername(''); setNewName(''); setNewPin('');
+      setNewUsername(''); setNewName(''); setNewPin(''); setNewRole('cashier');
       await fetchCashiers();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Could not add cashier', description: e instanceof Error ? e.message : 'Unknown error' });
@@ -166,7 +176,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier }: Props) => {
           <div>
             <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" /> Cashiers</CardTitle>
             <CardDescription>
-              Cashiers can sell at the till but can't edit products, stock, prices, expenses, debtors or settings.
+              Cashiers sell at the till, kitchen staff see the kitchen screen, and managers can also view dashboards.
             </CardDescription>
           </div>
           <Badge variant="secondary">{activeCount} active{cashierCap ? ` / ${cashierCap} max` : ''}</Badge>
@@ -196,6 +206,9 @@ const CashiersManager = ({ businessId, paymentCode, planTier }: Props) => {
                   <p className="text-xs text-muted-foreground">
                     @{c.username} · {c.is_active ? <span className="text-green-600">Active</span> : <span className="text-muted-foreground">Disabled</span>}
                   </p>
+                  <span className="inline-block mt-1 text-[11px] font-medium bg-primary/10 text-primary rounded-full px-2 py-0.5">
+                    {ROLE_LABEL[c.role] ?? 'Cashier'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setResetTarget(c); setResetPin(''); }}>
@@ -239,11 +252,28 @@ const CashiersManager = ({ businessId, paymentCode, planTier }: Props) => {
               <Label htmlFor="c-pin">PIN (4-6 digits)</Label>
               <Input id="c-pin" inputMode="numeric" pattern="[0-9]*" maxLength={6} value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))} placeholder="••••" />
             </div>
+            <div className="space-y-1">
+              <Label htmlFor="c-role">Role</Label>
+              <Select value={newRole} onValueChange={setNewRole}>
+                <SelectTrigger id="c-role" className="w-full">
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cashier">Cashier — sells at the till</SelectItem>
+                  {isRestaurant && (
+                    <>
+                      <SelectItem value="kitchen_staff">Kitchen staff — sees the kitchen screen</SelectItem>
+                      <SelectItem value="manager">Manager — kitchen + dashboards</SelectItem>
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setCreateOpen(false)} disabled={busy}>Cancel</Button>
             <Button variant="pos" onClick={handleCreate} disabled={busy}>
-              {busy ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Saving…</> : 'Create cashier'}
+              {busy ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Saving…</> : 'Create staff member'}
             </Button>
           </DialogFooter>
         </DialogContent>

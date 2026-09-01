@@ -43,6 +43,11 @@ function validateUsername(u: unknown): string | null {
   return v;
 }
 
+function validateRole(r: unknown): string {
+  if (r === "kitchen_staff" || r === "manager") return r;
+  return "cashier";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -113,6 +118,7 @@ Deno.serve(async (req) => {
       const username = validateUsername(body.username);
       const pin = validatePin(body.pin);
       const displayName = typeof body.display_name === "string" ? body.display_name.trim() : null;
+      const role = validateRole(body.role);
       if (!username) return json({ error: "Username must be 2-20 letters/numbers/underscore" }, 400);
       if (!pin) return json({ error: "PIN must be 4-6 digits" }, 400);
 
@@ -155,6 +161,7 @@ Deno.serve(async (req) => {
           username,
           display_name: displayName,
           is_active: true,
+          role,
         })
         .select()
         .single();

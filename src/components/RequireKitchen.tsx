@@ -1,0 +1,52 @@
+import { ReactNode, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuthContext } from '@/contexts/AuthContext';
+import { useBusiness } from '@/hooks/useBusiness';
+
+interface Props {
+  children: ReactNode;
+}
+
+/**
+ * Guards the kitchen display screen. Kitchen staff and managers (plus owners
+ * and super admins) pass through; plain cashiers are sent to the POS and
+ * unknown/unauthenticated users to the auth page. Non-restaurant businesses
+ * are redirected to the dashboard (the kitchen is restaurant-only).
+ */
+const RequireKitchen = ({ children }: Props) => {
+  const { isLoading, user, role } = useAuthContext();
+  const { business, isLoading: bizLoading } = useBusiness(user?.id);
+  const navigate = useNavigate();
+
+  const allowed = role === 'kitchen_staff' || role === 'manager' || role === 'owner' || role === 'super_admin';
+  const isRestaurant = business?.businessType === 'restaurant';
+  const notRestaurant = !!business && business.businessType !== 'restaurant';
+
+  useEffect(() => {
+    if (isLoading || bizLoading) return;
+    if (!user) {
+      navigate('/auth', { replace: true });
+      return;
+    }
+    if (business && business.businessType && business.businessType !== 'restaurant') {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+    if (role === 'cashier') {
+      navigate('/pos', { replace: true });
+      return;
+    }
+  }, [isLoading, bizLoading, user, role, business, navigate]);
+
+  if (isLoading || bizLoading || !user || !allowed || notRestaurant) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <p className="text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
+
+export default RequireKitchen;

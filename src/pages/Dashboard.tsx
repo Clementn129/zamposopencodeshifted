@@ -14,7 +14,7 @@ import LowStockAlert from '@/components/LowStockAlert';
 import DashboardNotifications from '@/components/DashboardNotifications';
 import DashboardStats from '@/components/DashboardStats';
 
-import { Store, ShoppingCart, Package, CreditCard, LogOut, Copy, Receipt, Settings as SettingsIcon, Users, Wallet, Briefcase, BarChart3, FileClock, UserCheck, CalendarClock } from 'lucide-react';
+import { Store, ShoppingCart, Package, CreditCard, LogOut, Copy, Receipt, Settings as SettingsIcon, Users, Wallet, Briefcase, BarChart3, FileClock, UserCheck, CalendarClock, ChefHat, LayoutGrid } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -22,7 +22,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user, signOut, isLoading: authLoading } = useAuthContext();
   const { business, isLoading: businessLoading, error: businessError, refetch, checkSubscriptionStatus } = useBusiness(user?.id);
-  const { labels, isService } = useBusinessType(business?.id);
+  const { labels, isService, isRestaurant } = useBusinessType(business?.id, business?.businessType);
   const { toast } = useToast();
   const [hasSalesToday, setHasSalesToday] = useState(false);
   const [expiringProducts, setExpiringProducts] = useState<Array<{ name: string; expiryDate: string }>>([]);
@@ -104,6 +104,11 @@ const Dashboard = () => {
 
   const handleRetry = () => refetch();
 
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth');
+  };
+
   if (!business && businessError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -126,12 +131,29 @@ const Dashboard = () => {
     );
   }
 
-  if (!business) return null;
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate('/auth');
-  };
+  if (!business) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="text-center max-w-md">
+          <Store className="w-12 h-12 text-primary mx-auto mb-4" />
+          <h2 className="font-display font-bold text-xl mb-2">No business found</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            This account is not linked to a business. New businesses are created
+            automatically when you register, so if you just signed up, try signing
+            out and signing back in. Admin/allowlisted accounts are not given a business.
+          </p>
+          <div className="flex gap-2 justify-center">
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              Reload
+            </Button>
+            <Button variant="pos" onClick={handleSignOut}>
+              Sign out
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const copyPaymentCode = () => {
     navigator.clipboard.writeText(business.paymentCode);
@@ -287,6 +309,20 @@ const Dashboard = () => {
                 </CardContent>
               </Card>
             </Link>
+
+            {isRestaurant && (
+              <Link to="/tables">
+                <Card className="product-card h-full">
+                  <CardContent className="flex flex-col items-center justify-center p-6 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
+                      <LayoutGrid className="w-7 h-7 text-primary" />
+                    </div>
+                    <h3 className="font-semibold">Floor Plan</h3>
+                    <p className="text-sm text-muted-foreground">Tables & orders</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
           </div>
 
           {/* Secondary Actions */}
@@ -300,6 +336,17 @@ const Dashboard = () => {
                 </CardContent>
               </Card>
             </Link>
+            {isRestaurant && (
+              <Link to="/kitchen">
+                <Card className="product-card h-full">
+                  <CardContent className="flex flex-col items-center justify-center p-4 text-center">
+                    <ChefHat className="w-6 h-6 text-muted-foreground mb-2" />
+                    <h3 className="font-medium text-sm">Kitchen</h3>
+                    <p className="text-xs text-muted-foreground">Order tickets</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
             <Link to="/cashier-activity">
               <Card className="product-card h-full">
                 <CardContent className="flex flex-col items-center justify-center p-4 text-center">

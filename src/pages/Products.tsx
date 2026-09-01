@@ -14,6 +14,7 @@ import {
   X,
   Download,
   Upload,
+  Utensils,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ import LockScreen from "@/components/LockScreen";
 import InventoryDashboard from "@/components/InventoryDashboard";
 import ProductImageUpload from "@/components/ProductImageUpload";
 import VariantsManager from "@/components/VariantsManager";
+import MenuModifiersManager from "@/components/MenuModifiersManager";
 import { useAuthContext } from "@/contexts/AuthContext";
 import PendingStockRequests from "@/components/PendingStockRequests";
 
@@ -76,7 +78,7 @@ const Products = () => {
   const { isSyncing: stockSyncing, pendingCount: stockPending, syncNow: syncStockNow } = useStockSync(
     business?.id
   );
-  const { labels, isService, isHybrid } = useBusinessType(business?.id);
+  const { labels, isService, isHybrid, isRestaurant } = useBusinessType(business?.id, business?.businessType);
   const {
     categories,
     setCategories,
@@ -89,6 +91,7 @@ const Products = () => {
   const [displayLimit, setDisplayLimit] = useState(200);
   const [open, setOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [modifiersOpen, setModifiersOpen] = useState(false);
   const [stockAdjustOpen, setStockAdjustOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [stockAdjustment, setStockAdjustment] = useState("");
@@ -828,6 +831,19 @@ const Products = () => {
                 <Tag className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Categories</span>
               </Button>
+              {isRestaurant && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setModifiersOpen(true)}
+                  disabled={!isOnline}
+                  aria-label="Menu modifiers"
+                  title="Modifier groups and options"
+                >
+                  <Utensils className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Modifiers</span>
+                </Button>
+              )}
               <Button variant="pos" size="sm" onClick={openCreate} aria-label={labels.addButtonLabel}>
                 <Plus className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">{labels.addButtonLabel}</span>
@@ -1396,6 +1412,16 @@ const Products = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Menu Modifiers Dialog (restaurant only) */}
+      {isRestaurant && (
+        <MenuModifiersManager
+          open={modifiersOpen}
+          onOpenChange={setModifiersOpen}
+          businessId={business?.id}
+          products={products}
+        />
+      )}
 
       {/* Stock Adjustment Dialog */}
       <Dialog open={stockAdjustOpen} onOpenChange={setStockAdjustOpen}>

@@ -4,15 +4,15 @@ import { useAuthContext } from '@/contexts/AuthContext';
 
 interface Props {
   children: ReactNode;
-  /** Where to send cashiers when they hit an owner-only page. Default: /pos */
-  cashierRedirect?: string;
+  /** Where to send staff roles when they hit an owner-only page. Default: /pos */
+  staffRedirect?: string;
 }
 
 /**
- * Wraps owner-only pages. Cashiers are redirected to the POS.
- * Owners and super admins pass through.
+ * Wraps owner-only pages. Staff (cashiers, kitchen staff) are redirected to
+ * their own screens. Owners, managers and super admins pass through.
  */
-const RequireOwner = ({ children, cashierRedirect = '/pos' }: Props) => {
+const RequireOwner = ({ children, staffRedirect }: Props) => {
   const { isLoading, user, role } = useAuthContext();
   const navigate = useNavigate();
 
@@ -22,12 +22,12 @@ const RequireOwner = ({ children, cashierRedirect = '/pos' }: Props) => {
       navigate('/auth', { replace: true });
       return;
     }
-    if (role === 'cashier') {
-      navigate(cashierRedirect, { replace: true });
+    if (role === 'cashier' || role === 'kitchen_staff') {
+      navigate(role === 'kitchen_staff' ? '/kitchen' : (staffRedirect ?? '/pos'), { replace: true });
     }
-  }, [isLoading, user, role, navigate, cashierRedirect]);
+  }, [isLoading, user, role, navigate, staffRedirect]);
 
-  if (isLoading || !user || role === 'cashier' || role === 'unknown') {
+  if (isLoading || !user || role === 'cashier' || role === 'kitchen_staff' || role === 'unknown') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <p className="text-muted-foreground">Loading…</p>

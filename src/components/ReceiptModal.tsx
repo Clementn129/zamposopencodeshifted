@@ -12,6 +12,7 @@ interface ReceiptItem {
   discountType?: string;
   discountValue?: number;
   notes?: string;
+  modifiers?: Array<{ name: string; priceAdjustment: number }>;
 }
 
 interface BusinessDetails {
@@ -280,6 +281,7 @@ const ReceiptModal = ({
     lines.push(`${center}<b><font size='tall'>TOTAL: ZMW ${total.toFixed(2)}</font></b>`);
     lines.push(`${left}Payment${right}${paymentMethod === "cash" ? "Cash" : paymentMethod === "mobile_money" ? "Mobile Money" : escapeHtml(paymentMethod)}`);
     lines.push(`${center}================================`);
+    
     lines.push(`${center}<font size='small'>Thank you for your ${isService ? "business" : "purchase"}!</font>`);
     lines.push(`${center}<font size='small'>Powered by ZamPOS</font>`);
 
@@ -432,7 +434,15 @@ const ReceiptModal = ({
               <tbody>
                 {items.map((item, idx) => (
                   <tr key={idx} className="border-b border-dashed border-gray-300">
-                    <td className="py-1">{item.name}{item.notes && <span className="text-gray-500 ml-1">({item.notes})</span>}</td>
+                    <td className="py-1">
+                      {item.name}
+                      {item.notes && <span className="text-gray-500 ml-1">({item.notes})</span>}
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <div className="text-[10px] text-gray-500">
+                          {item.modifiers.map((m) => (m.priceAdjustment > 0 ? `${m.name} (+K${m.priceAdjustment.toFixed(2)})` : m.priceAdjustment < 0 ? `${m.name} (-K${Math.abs(m.priceAdjustment).toFixed(2)})` : m.name)).join(" · ")}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-1 text-center">{item.quantity}</td>
                     <td className="py-1 text-right">{item.price.toFixed(2)}</td>
                     <td className="py-1 text-right">{(item.price * item.quantity).toFixed(2)}</td>
@@ -447,6 +457,11 @@ const ReceiptModal = ({
                   <span className="flex-1">
                     {item.name}
                     {item.notes && <span className="text-muted-foreground text-[10px] ml-1">({item.notes})</span>}
+                    {item.modifiers && item.modifiers.length > 0 && (
+                      <span className="block text-[10px] text-muted-foreground">
+                        {item.modifiers.map((m) => (m.priceAdjustment > 0 ? `${m.name} (+K${m.priceAdjustment.toFixed(2)})` : m.priceAdjustment < 0 ? `${m.name} (-K${Math.abs(m.priceAdjustment).toFixed(2)})` : m.name)).join(" · ")}
+                      </span>
+                    )}
                   </span>
                   <span className="w-8 text-center">{qtyPrefix}{item.quantity}</span>
                   <span className="w-16 text-right">ZMW {(item.price * item.quantity).toFixed(2)}</span>

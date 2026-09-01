@@ -64,6 +64,7 @@ export function usePendingOpsSync(businessId: string | undefined) {
                 p_amount_paid: amountPaid,
                 p_due_date: op.payload.dueDate || null,
                 p_customer_phone: op.payload.customerPhone || null,
+                p_table_id: (op.payload as any).tableId || null,
               });
 
               if (saleErr) throw saleErr;

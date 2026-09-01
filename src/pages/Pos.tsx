@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, LogOut, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText } from "lucide-react";
+import { ArrowLeft, LogOut, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,17 +9,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import ConnectionStatus from "@/components/ConnectionStatus";
 import SyncStatusBanner from "@/components/SyncStatusBanner";
 import ReceiptModal from "@/components/ReceiptModal";
 import LockScreen from "@/components/LockScreen";
 import QuotationTab from "@/components/QuotationTab";
+import MenuModifierPicker, { ModifierPick } from "@/components/MenuModifierPicker";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useBusiness } from "@/hooks/useBusiness";
 import { useProducts } from "@/hooks/useProducts";
 import { useSalesSync } from "@/hooks/useSalesSync";
 import { useBusinessType } from "@/hooks/useBusinessType";
+import { useMenuModifiers } from "@/hooks/useMenuModifiers";
+import { useDiningTables, DiningTable } from "@/hooks/useDiningTables";
 import { saveOfflineSale, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem, queuePendingOp, getCachedDebtors, cacheDebtors, getCachedImageBlob } from "@/lib/offlineStorage";
 import { calculateTax, TaxCategory } from "@/lib/tax";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,10 +39,11 @@ type CartLine = {
   discountValue?: number;
   notes?: string;
   taxCategory?: TaxCategory;
+  modifiers?: Array<{ id: string; groupId: string; name: string; priceAdjustment: number }>;
 };
 
 interface ReceiptData {
-  items: Array<{ name: string; price: number; quantity: number; discountType?: string | null; discountValue?: number; notes?: string }>;
+  items: Array<{ name: string; price: number; quantity: number; discountType?: string | null; discountValue?: number; notes?: string; modifiers?: Array<{ name: string; priceAdjustment: number }> }>;
   subtotal: number;
   total: number;
   discountAmount: number;
@@ -75,7 +80,8 @@ const Pos = () => {
 
   const { activeProducts, isLoading: productsLoading, isOnline, refetch: refetchProducts } = useProducts(business?.id);
   const { isSyncing, pendingCount, lastSyncError, syncNow } = useSalesSync(business?.id);
-  const { labels, isService } = useBusinessType(business?.id);
+  const { labels, isService, isRestaurant } = useBusinessType(business?.id, business?.businessType);
+  const { groups: modifierGroups, modifiersByGroup, groupIdsByProduct, isLoading: modifiersLoading } = useMenuModifiers(business?.id);
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "mobile_money">("cash");
@@ -104,6 +110,14 @@ const Pos = () => {
   const [customerTpin, setCustomerTpin] = useState("");
   const [creditNotes, setCreditNotes] = useState("");
   const isCredit = paymentMode !== "full";
+
+  // Modifier picker for restaurant menu items
+  const [modifierProduct, setModifierProduct] = useState<{ id: string; name: string; basePrice: number } | null>(null);
+
+  // Dine-in table picker (restaurant)
+  const { tables: diningTables, isLoading: tablesLoading } = useDiningTables(business?.id);
+  const [selectedTable, setSelectedTable] = useState<DiningTable | null>(null);
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
 
   // Filter products based on search query
   const filteredProducts = useMemo(() => {
@@ -174,30 +188,46 @@ const Pos = () => {
     return received - total;
   }, [amountReceived, total]);
 
-const addToCart = async (productId: string) => {
+const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modifiers']; unitPrice?: number }) => {
     const p = activeProducts.find((x) => x.id === productId);
     if (!p) return;
     const displayName = p.variantLabel ? `${p.name} · ${p.variantLabel}` : p.name;
+
+    // Restaurant items with modifier groups open the picker first.
+    const prodGroups = groupIdsByProduct[productId] ?? [];
+    const hasModifierOptions = prodGroups.some((gid) => (modifiersByGroup[gid] ?? []).length > 0);
+    if (isRestaurant && hasModifierOptions && !opts?.modifiers) {
+      setModifierProduct({
+        id: p.id,
+        name: displayName,
+        basePrice: p.price ?? 0,
+      });
+      return;
+    }
+
     const existing = cart.find((l) => l.productId === productId);
     const nextQty = (existing?.quantity ?? 0) + 1;
     if (p.itemType !== 'service' && nextQty > (p.stock ?? 0)) {
       toast({ variant: "destructive", title: "Not enough stock", description: `${displayName} has only ${p.stock ?? 0} left.` });
       return;
     }
-    const next = existing
+    const unitPrice = opts?.unitPrice ?? p.price ?? 0;
+    const isSameModifiers = JSON.stringify(existing?.modifiers ?? []) === JSON.stringify(opts?.modifiers ?? []);
+    const next = existing && isSameModifiers && existing.price === unitPrice
       ? cart.map((l) => (l.productId === productId ? { ...l, quantity: nextQty } : l))
-      : [...cart, { productId, name: displayName, price: p.price ?? 0, quantity: 1, costPrice: p.costPrice, taxCategory: p.taxCategory }];
+      : [...cart, { productId, name: displayName, price: unitPrice, quantity: 1, costPrice: p.costPrice, taxCategory: p.taxCategory, modifiers: opts?.modifiers ?? [] }];
     setCart(next);
     await saveCartItem({
       productId,
       name: displayName,
-      price: p.price ?? 0,
+      price: unitPrice,
       quantity: nextQty,
       costPrice: p.costPrice,
       discountType: existing?.discountType || null,
       discountValue: existing?.discountValue || 0,
       notes: existing?.notes || "",
-      taxCategory: p.taxCategory
+      taxCategory: p.taxCategory,
+      modifiers: opts?.modifiers ?? [],
     });
   };
 
@@ -277,6 +307,8 @@ const addToCart = async (productId: string) => {
     setCustomerTpin("");
     setCreditNotes("");
     setAmountReceived("");
+    setSelectedTable(null);
+    setTablePickerOpen(false);
   };
 
   // Tax breakdown — recomputed on every cart/discount change
@@ -358,6 +390,7 @@ const addToCart = async (productId: string) => {
           discountValue: l.discountValue || 0,
           notes: l.notes || null,
           taxCategory: l.taxCategory || p?.taxCategory || 'taxable',
+          modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : null,
         };
       }),
       subtotal, total, discountAmount,
@@ -372,6 +405,7 @@ const addToCart = async (productId: string) => {
       customerPhone: (customerPhone.trim() || null),
       amountPaid: amountPaidNow,
       dueDate: dueDate || null,
+      tableId: selectedTable?.id ?? null,
     };
 
     try {
@@ -395,6 +429,7 @@ const addToCart = async (productId: string) => {
           p_amount_paid: amountPaidNow,
           p_due_date: dueDate || null,
           p_customer_phone: salePayload.customerPhone,
+          p_table_id: selectedTable?.id ?? null,
         });
 
         if (saleErr) throw saleErr;
@@ -447,6 +482,7 @@ const addToCart = async (productId: string) => {
             dueDate: dueDate || null,
             createdAt,
             amountPaid: amountPaidNow,
+            tableId: salePayload.tableId,
           },
           createdAt,
         });
@@ -481,6 +517,7 @@ const addToCart = async (productId: string) => {
       if (isOnline) {
         await syncNow();
       }
+
       setReceiptData({
         items: cart.map((l) => ({ 
           name: l.name, 
@@ -488,7 +525,8 @@ const addToCart = async (productId: string) => {
           quantity: l.quantity,
           discountType: l.discountType,
           discountValue: l.discountValue,
-          notes: l.notes
+          notes: l.notes,
+          modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers.map((m) => ({ name: m.name, priceAdjustment: m.priceAdjustment })) : undefined,
         })),
         subtotal, total, discountAmount, paymentMethod, date: createdAt, receiptId: saleId,
         taxAmount: salePayload.taxAmount,
@@ -547,6 +585,73 @@ const addToCart = async (productId: string) => {
     <>
       <ConnectionStatus />
       <SyncStatusBanner isOnline={isOnline} isSyncing={isSyncing} pendingCount={pendingCount} lastSyncError={lastSyncError} />
+      <MenuModifierPicker
+        open={!!modifierProduct}
+        product={modifierProduct}
+        groups={modifierGroups}
+        modifiersByGroup={modifiersByGroup}
+        groupIdsByProduct={groupIdsByProduct}
+        onClose={() => setModifierProduct(null)}
+        onConfirm={(modifiers: ModifierPick[], unitPrice: number) => {
+          if (modifierProduct) {
+            void addToCart(modifierProduct.id, { modifiers: modifiers.length > 0 ? modifiers : [], unitPrice });
+          }
+        }}
+      />
+      <Dialog open={tablePickerOpen} onOpenChange={setTablePickerOpen}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Select table</DialogTitle>
+            <DialogDescription>
+              Assign this order to a table, or leave unassigned for takeaway.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <button
+              onClick={() => { setSelectedTable(null); setTablePickerOpen(false); }}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2.5 text-sm hover:bg-secondary/60 transition ${selectedTable === null ? "border-primary bg-primary/5" : "border-border"}`}
+            >
+              <span>No table · Takeaway</span>
+              {selectedTable === null && <span className="text-xs font-semibold text-primary">Selected</span>}
+            </button>
+            {tablesLoading ? (
+              <p className="text-sm text-muted-foreground px-1">Loading tables…</p>
+            ) : diningTables.filter((t) => t.is_active).length === 0 ? (
+              <p className="text-sm text-muted-foreground px-1">No tables yet. Add them in Settings → Dining Tables.</p>
+            ) : (
+              (() => {
+                const active = diningTables.filter((t) => t.is_active).sort((a, b) => a.name.localeCompare(b.name));
+                const byFloor: Record<string, DiningTable[]> = {};
+                for (const t of active) {
+                  const key = t.floor?.trim() ?? "";
+                  (byFloor[key] ??= []).push(t);
+                }
+                return Object.keys(byFloor)
+                  .sort((a, b) => a.localeCompare(b))
+                  .map((floor) => (
+                    <div key={floor}>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1 mb-1 mt-3">
+                        {floor || "General"}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {byFloor[floor].map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => { setSelectedTable(t); setTablePickerOpen(false); }}
+                            className={`rounded-lg border px-3 py-2.5 text-left text-sm hover:bg-secondary/60 transition ${selectedTable?.id === t.id ? "border-primary bg-primary/5" : "border-border"}`}
+                          >
+                            <span className="block font-medium truncate">{t.name}</span>
+                            <span className="block text-xs text-muted-foreground">Seats {t.capacity}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+              })()
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       {receiptData && (
         <ReceiptModal
           open={!!receiptData}
@@ -678,7 +783,7 @@ const addToCart = async (productId: string) => {
                   <CardHeader><CardTitle className="text-lg">{isService ? 'Invoice' : 'Cart'}</CardTitle><CardDescription>{isService ? 'Complete transaction' : 'Complete sale'}</CardDescription></CardHeader>
                   <CardContent className="space-y-3">
                     {cart.length === 0 ? <p className="text-sm text-muted-foreground">{isService ? 'No services added.' : 'Cart empty.'}</p> : cart.map((l) => (
-                      <div key={l.productId} className="bg-secondary rounded-lg p-3">
+                      <div key={`l_${l.productId}_${l.modifiers?.map((m) => m.id).join('_') ?? 'plain'}`} className="bg-secondary rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
                           <div><p className="font-medium">{l.name}</p><p className="text-xs text-muted-foreground">{l.quantity} {labels.quantityLabel} × ZMW {l.price.toFixed(2)}</p></div>
                           <div className="flex gap-1">
@@ -687,6 +792,11 @@ const addToCart = async (productId: string) => {
                             <Button variant="outline" size="icon" onClick={async () => { setCart(prev => prev.filter((x) => x.productId !== l.productId)); await removeCartItem(l.productId); }}><Trash2 className="h-4 w-4" /></Button>
                           </div>
                         </div>
+                        {l.modifiers && l.modifiers.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {l.modifiers.map((m) => (m.priceAdjustment > 0 ? `${m.name} (+K${m.priceAdjustment.toFixed(2)})` : m.priceAdjustment < 0 ? `${m.name} (-K${Math.abs(m.priceAdjustment).toFixed(2)})` : m.name)).join(" · ")}
+                          </p>
+                        )}
                         {/* Item discount */}
                         <div className="flex items-center gap-2 mt-2">
                           <Select 
@@ -756,6 +866,31 @@ const addToCart = async (productId: string) => {
                             )}
                           </div>
                         </div>
+
+                        {/* Table (restaurant only) */}
+                        {isRestaurant && (
+                          <div className="border-t pt-3 space-y-2">
+                            <Label className="text-sm flex items-center gap-1">
+                              <LayoutGrid className="h-4 w-4" /> Table
+                            </Label>
+                            <Button
+                              variant="outline"
+                              className="w-full justify-between font-normal"
+                              onClick={() => setTablePickerOpen(true)}
+                            >
+                              <span className="truncate">
+                                {selectedTable ? selectedTable.name : tablesLoading ? "Loading tables…" : "No table · Takeaway"}
+                              </span>
+                              <LayoutGrid className="h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                            {selectedTable && (
+                              <p className="text-xs text-muted-foreground">
+                                Order will be seated at <strong>{selectedTable.name}</strong>
+                                {selectedTable.floor ? ` (${selectedTable.floor})` : ""}.
+                              </p>
+                            )}
+                          </div>
+                        )}
 
                         {/* Customer Info (optional - for tax invoice / TPIN) */}
                         <div className="border-t pt-3 space-y-2">

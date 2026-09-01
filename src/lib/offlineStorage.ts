@@ -52,6 +52,7 @@ interface OfflineSale {
   customerPhone?: string | null;
   amountPaid?: number;
   dueDate?: string | null;
+  tableId?: string | null;
 }
 
 interface OfflineStockUpdate {
@@ -108,6 +109,7 @@ interface CachedBusiness {
   tpin?: string | null;
   logoUrl?: string | null;
   vatNumber?: string | null;
+  businessType?: string | null;
 }
 
 let dbInstance: IDBDatabase | null = null;
@@ -483,6 +485,7 @@ interface CartItem {
   discountValue?: number;
   notes?: string;
   taxCategory?: 'taxable' | 'zero_rated' | 'exempt';
+  modifiers?: Array<{ id: string; groupId: string; name: string; priceAdjustment: number }>;
 }
 
 export const saveCartItem = async (item: CartItem): Promise<void> => {

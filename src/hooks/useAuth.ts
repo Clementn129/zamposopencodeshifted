@@ -10,7 +10,7 @@ const LOADING_TIMEOUT_MS = isElectron ? 3_000 : 15_000;
  *  getSession / refreshSession stall on slow or flaky networks. */
 const RECOVERY_TIMEOUT_MS = 10_000;
 
-export type UserRole = 'owner' | 'cashier' | 'super_admin' | 'unknown';
+export type UserRole = 'owner' | 'cashier' | 'kitchen_staff' | 'manager' | 'super_admin' | 'unknown';
 
 interface AuthState {
   user: User | null;
@@ -209,7 +209,7 @@ export const useAuth = () => {
     };
   }, [applySession, resolveRole, clearRecoveryTimer]);
 
-  const signUp = async (email: string, password: string, fullName: string, businessName: string, phone?: string, address?: string, affiliateCode?: string) => {
+  const signUp = async (email: string, password: string, fullName: string, businessName: string, phone?: string, address?: string, affiliateCode?: string, businessType?: string) => {
     const { getAppUrl } = await import('@/lib/appUrl');
     const redirectUrl = `${getAppUrl()}/`;
     const { data, error } = await supabase.auth.signUp({
@@ -223,6 +223,7 @@ export const useAuth = () => {
           phone: phone || null,
           address: address || null,
           affiliate_code: affiliateCode || null,
+          business_type: businessType || 'retail',
         },
       },
     });

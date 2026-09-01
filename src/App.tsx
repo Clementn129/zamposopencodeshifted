@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import RequireOwner from "@/components/RequireOwner";
+import RequireKitchen from "@/components/RequireKitchen";
+import RequireMember from "@/components/RequireMember";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -24,6 +26,8 @@ import Reports from "./pages/Reports";
 import CashierActivity from "./pages/CashierActivity";
 import AuditLog from "./pages/AuditLog";
 import NotFound from "./pages/NotFound";
+import Kitchen from "./pages/Kitchen";
+import DiningTabs from "./pages/DiningTabs";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { AppSyncManager } from "@/components/AppSyncManager";
 
@@ -48,6 +52,8 @@ const App = forwardRef<HTMLDivElement>((_, ref) => (
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/dashboard" element={<RequireOwner><Dashboard /></RequireOwner>} />
                 <Route path="/pos" element={<Pos />} />
+                <Route path="/kitchen" element={<RequireKitchen><Kitchen /></RequireKitchen>} />
+                <Route path="/tables" element={<RequireMember restaurantOnly><DiningTabs /></RequireMember>} />
                 <Route path="/products" element={<RequireOwner><Products /></RequireOwner>} />
                 <Route path="/subscription" element={<RequireOwner><Subscription /></RequireOwner>} />
                 <Route path="/sales" element={<RequireOwner><SalesHistory /></RequireOwner>} />

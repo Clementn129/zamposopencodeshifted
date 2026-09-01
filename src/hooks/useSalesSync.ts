@@ -58,6 +58,7 @@ export function useSalesSync(businessId: string | undefined) {
             p_amount_paid: (sale as any).amountPaid ?? sale.total,
             p_due_date: (sale as any).dueDate || null,
             p_customer_phone: (sale as any).customerPhone || null,
+            p_table_id: (sale as any).tableId || null,
           });
 
           if (saleErr) {

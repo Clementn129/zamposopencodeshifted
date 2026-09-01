@@ -222,6 +222,7 @@ export type Database = {
           id: string
           is_active: boolean
           last_login_at: string | null
+          role: string
           updated_at: string
           username: string
         }
@@ -233,6 +234,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_login_at?: string | null
+          role?: string
           updated_at?: string
           username: string
         }
@@ -244,6 +246,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_login_at?: string | null
+          role?: string
           updated_at?: string
           username?: string
         }
@@ -252,6 +255,7 @@ export type Database = {
       businesses: {
         Row: {
           address: string | null
+          business_type: string
           created_at: string
           custom_tax_name: string | null
           custom_tax_rate: number | null
@@ -264,6 +268,10 @@ export type Database = {
           payment_code: string
           phone: string | null
           plan_tier: string | null
+          smart_invoice_branch_id: string | null
+          smart_invoice_device_id: string | null
+          smart_invoice_enabled: boolean
+          smart_invoice_server_url: string | null
           subscription_expires_at: string | null
           subscription_status: Database["public"]["Enums"]["subscription_status"]
           tax_mode: string
@@ -276,6 +284,7 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          business_type?: string
           created_at?: string
           custom_tax_name?: string | null
           custom_tax_rate?: number | null
@@ -288,6 +297,10 @@ export type Database = {
           payment_code: string
           phone?: string | null
           plan_tier?: string | null
+          smart_invoice_branch_id?: string | null
+          smart_invoice_device_id?: string | null
+          smart_invoice_enabled?: boolean
+          smart_invoice_server_url?: string | null
           subscription_expires_at?: string | null
           subscription_status?: Database["public"]["Enums"]["subscription_status"]
           tax_mode?: string
@@ -300,6 +313,7 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          business_type?: string
           created_at?: string
           custom_tax_name?: string | null
           custom_tax_rate?: number | null
@@ -312,6 +326,10 @@ export type Database = {
           payment_code?: string
           phone?: string | null
           plan_tier?: string | null
+          smart_invoice_branch_id?: string | null
+          smart_invoice_device_id?: string | null
+          smart_invoice_enabled?: boolean
+          smart_invoice_server_url?: string | null
           subscription_expires_at?: string | null
           subscription_status?: Database["public"]["Enums"]["subscription_status"]
           tax_mode?: string
@@ -323,6 +341,50 @@ export type Database = {
           vat_rate?: number
         }
         Relationships: []
+      }
+      dining_tables: {
+        Row: {
+          business_id: string
+          capacity: number
+          created_at: string
+          floor: string | null
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          capacity?: number
+          created_at?: string
+          floor?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          capacity?: number
+          created_at?: string
+          floor?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dining_tables_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       debtor_payments: {
         Row: {
@@ -473,6 +535,234 @@ export type Database = {
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      menu_item_modifiers: {
+        Row: {
+          business_id: string
+          created_at: string
+          modifier_group_id: string
+          product_id: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          modifier_group_id: string
+          product_id: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          modifier_group_id?: string
+          product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_item_modifiers_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_referred_businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_item_modifiers_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_item_modifiers_modifier_group_id_fkey"
+            columns: ["modifier_group_id"]
+            isOneToOne: false
+            referencedRelation: "menu_modifier_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_item_modifiers_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      menu_modifier_groups: {
+        Row: {
+          business_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          max_selections: number
+          min_selections: number
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_selections?: number
+          min_selections?: number
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_selections?: number
+          min_selections?: number
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_modifier_groups_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_referred_businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_modifier_groups_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      menu_modifiers: {
+        Row: {
+          business_id: string
+          created_at: string
+          group_id: string
+          id: string
+          is_active: boolean
+          name: string
+          price_adjustment: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          group_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          price_adjustment?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          group_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          price_adjustment?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_modifiers_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "affiliate_referred_businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_modifiers_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_modifiers_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "menu_modifier_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kitchen_orders: {
+        Row: {
+          business_id: string
+          cancelled_at: string | null
+          created_at: string
+          id: string
+          items: Json
+          marked_ready_at: string | null
+          note: string | null
+          sale_id: string
+          served_at: string | null
+          started_preparing_at: string | null
+          status: string
+          table_id: string | null
+          table_name: string | null
+          ticket_number: number
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          cancelled_at?: string | null
+          created_at?: string
+          id?: string
+          items?: Json
+          marked_ready_at?: string | null
+          note?: string | null
+          sale_id: string
+          served_at?: string | null
+          started_preparing_at?: string | null
+          status?: string
+          table_id?: string | null
+          table_name?: string | null
+          ticket_number?: number
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          cancelled_at?: string | null
+          created_at?: string
+          id?: string
+          items?: Json
+          marked_ready_at?: string | null
+          note?: string | null
+          sale_id?: string
+          served_at?: string | null
+          started_preparing_at?: string | null
+          status?: string
+          table_id?: string | null
+          table_name?: string | null
+          ticket_number?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kitchen_orders_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kitchen_orders_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: true
+            referencedRelation: "sales"
             referencedColumns: ["id"]
           },
         ]
@@ -955,9 +1245,12 @@ export type Database = {
           offline_id: string | null
           payment_method: string
           payment_status: Database["public"]["Enums"]["sale_payment_status"]
+          smart_invoice_mark_id: string | null
+          smart_invoice_status: string | null
           status: Database["public"]["Enums"]["sale_status"]
           subtotal: number
           synced: boolean
+          table_id: string | null
           tax_amount: number
           taxable_amount: number
           total: number
@@ -984,9 +1277,12 @@ export type Database = {
           offline_id?: string | null
           payment_method: string
           payment_status?: Database["public"]["Enums"]["sale_payment_status"]
+          smart_invoice_mark_id?: string | null
+          smart_invoice_status?: string | null
           status?: Database["public"]["Enums"]["sale_status"]
           subtotal: number
           synced?: boolean
+          table_id?: string | null
           tax_amount?: number
           taxable_amount?: number
           total: number
@@ -1013,9 +1309,12 @@ export type Database = {
           offline_id?: string | null
           payment_method?: string
           payment_status?: Database["public"]["Enums"]["sale_payment_status"]
+          smart_invoice_mark_id?: string | null
+          smart_invoice_status?: string | null
           status?: Database["public"]["Enums"]["sale_status"]
           subtotal?: number
           synced?: boolean
+          table_id?: string | null
           tax_amount?: number
           taxable_amount?: number
           total?: number
@@ -1034,6 +1333,13 @@ export type Database = {
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "dining_tables"
             referencedColumns: ["id"]
           },
         ]
@@ -1259,6 +1565,7 @@ export type Database = {
           p_offline_id: string
           p_payment_method?: string
           p_subtotal: number
+          p_table_id?: string
           p_tax_amount?: number
           p_taxable_amount?: number
           p_total: number

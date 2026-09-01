@@ -33,6 +33,7 @@ interface Business {
   customTaxName?: string | null;
   customTaxRate?: number | null;
   planTier?: string | null;
+  businessType?: string | null;
 }
 
 
@@ -55,7 +56,7 @@ const mapBusinessRow = (row: BusinessRow): Business => ({
   customTaxName: row.custom_tax_name,
   customTaxRate: row.custom_tax_rate != null ? Number(row.custom_tax_rate) : null,
   planTier: (row as any).plan_tier ?? null,
-
+  businessType: row.business_type ?? null,
 });
 
 const isElectronBiz = typeof navigator !== 'undefined' && navigator.userAgent?.includes('Electron');
@@ -111,6 +112,7 @@ export const useBusiness = (userId: string | undefined) => {
       tpin: row.tpin,
       logoUrl: row.logo_url,
       vatNumber: row.vat_number,
+      businessType: row.business_type ?? null,
     });
   }, []);
 
@@ -139,6 +141,7 @@ export const useBusiness = (userId: string | undefined) => {
         tpin: cachedBiz.tpin ?? null,
         logoUrl: cachedBiz.logoUrl ?? null,
         vatNumber: cachedBiz.vatNumber ?? null,
+        businessType: cachedBiz.businessType ?? null,
       });
       return;
     }

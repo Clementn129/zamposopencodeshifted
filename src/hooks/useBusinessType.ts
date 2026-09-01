@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-export type BusinessType = 'retail' | 'service' | 'hybrid';
+export type BusinessType = 'retail' | 'service' | 'hybrid' | 'restaurant';
 
 interface BusinessTypeLabels {
   // Navigation & Headers
@@ -105,13 +105,42 @@ const HYBRID_LABELS: BusinessTypeLabels = {
   noItemsMessage: 'No items yet.',
 };
 
+const RESTAURANT_LABELS: BusinessTypeLabels = {
+  productsTitle: 'Menu Items',
+  productsDescription: 'Search, edit and manage your menu.',
+  addButtonLabel: 'Add',
+  itemName: 'Item Name',
+  itemNamePlaceholder: 'Chicken & Chips',
+  priceLabel: 'Price (ZMW)',
+  quantityLabel: 'Qty',
+  stockLabel: 'Stock',
+  minStockLabel: 'Min Stock (alerts)',
+  categoryLabel: 'Category (optional)',
+  posItemsTitle: 'Menu',
+  posItemsDescription: 'Tap to add to order',
+  stockDisplay: (stock: number) => `Stock: ${stock}`,
+  receiptItemLabel: 'Item',
+  receiptQuantityPrefix: 'x',
+  showStock: true,
+  showDuration: false,
+  showNotes: false,
+  lowStockWarning: 'LOW',
+  noItemsMessage: 'No menu items yet.',
+};
+
 const STORAGE_KEY = 'zampos_business_type';
 
-export function useBusinessType(businessId?: string) {
+const HEALTHY_TYPES: BusinessType[] = ['retail', 'service', 'hybrid', 'restaurant'];
+
+const isBusinessType = (v: string | null | undefined): v is BusinessType => {
+  return !!v && (HEALTHY_TYPES as string[]).includes(v);
+};
+
+export function useBusinessType(businessId?: string, serverBusinessType?: string | null) {
   const storageKey = businessId ? `${STORAGE_KEY}_${businessId}` : STORAGE_KEY;
 
   const parse = (raw: string | null): BusinessType => {
-    if (raw === 'service' || raw === 'hybrid') return raw;
+    if (isBusinessType(raw)) return raw;
     return 'retail';
   };
 
@@ -125,6 +154,16 @@ export function useBusinessType(businessId?: string) {
     setBusinessTypeState(parse(localStorage.getItem(storageKey)));
   }, [storageKey]);
 
+  // Server value only seeds the local cache when nothing valid is stored yet.
+  // Existing users keep their localStorage value (localStorage wins on purpose).
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isBusinessType(serverBusinessType)) return;
+    const stored = localStorage.getItem(storageKey);
+    if (isBusinessType(stored)) return;
+    localStorage.setItem(storageKey, serverBusinessType);
+    setBusinessTypeState(serverBusinessType);
+  }, [storageKey, serverBusinessType]);
+
   const setBusinessType = useCallback(
     (type: BusinessType) => {
       setBusinessTypeState(type);
@@ -136,11 +175,15 @@ export function useBusinessType(businessId?: string) {
   );
 
   const labels: BusinessTypeLabels =
-    businessType === 'service' ? SERVICE_LABELS : businessType === 'hybrid' ? HYBRID_LABELS : RETAIL_LABELS;
+    businessType === 'service' ? SERVICE_LABELS
+    : businessType === 'hybrid' ? HYBRID_LABELS
+    : businessType === 'restaurant' ? RESTAURANT_LABELS
+    : RETAIL_LABELS;
 
   const isRetail = businessType === 'retail';
   const isService = businessType === 'service';
   const isHybrid = businessType === 'hybrid';
+  const isRestaurant = businessType === 'restaurant';
 
   return {
     businessType,
@@ -149,5 +192,6 @@ export function useBusinessType(businessId?: string) {
     isRetail,
     isService,
     isHybrid,
+    isRestaurant,
   };
 }
