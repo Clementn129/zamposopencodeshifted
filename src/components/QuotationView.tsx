@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, Printer, ShoppingCart, Edit, Calendar, User, Hash, FileText } from "lucide-react";
+import { ArrowLeft, Download, Printer, ShoppingCart, Edit, Calendar, User, Hash, FileText, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -12,6 +12,7 @@ interface QuotationViewProps {
   onBack: () => void;
   onEdit: () => void;
   onConvert: () => void;
+  onCreateDeliveryNote?: () => void;
 }
 
 const statusConfig: Record<string, { label: string; className: string }> = {
@@ -23,7 +24,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   converted: { label: 'Converted', className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' },
 };
 
-const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdit, onConvert }: QuotationViewProps) => {
+const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdit, onConvert, onCreateDeliveryNote }: QuotationViewProps) => {
   const items = quotation.items || [];
   const status = statusConfig[quotation.status] || statusConfig.draft;
 
@@ -271,6 +272,9 @@ const QuotationView = ({ quotation, businessName, businessDetails, onBack, onEdi
               <Button variant="outline" size="sm" onClick={onEdit}><Edit className="h-4 w-4 mr-1" /> Edit</Button>
               <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={onConvert}><ShoppingCart className="h-4 w-4 mr-1" /> Convert to Sale</Button>
             </>
+          )}
+          {onCreateDeliveryNote && (
+            <Button variant="outline" size="sm" onClick={onCreateDeliveryNote}><Truck className="h-4 w-4 mr-1" /> Delivery Note</Button>
           )}
           <Button variant="outline" size="sm" onClick={handleDownload}><Download className="h-4 w-4 mr-1" /> PDF</Button>
           <Button variant="outline" size="sm" onClick={handlePrint}><Printer className="h-4 w-4 mr-1" /> Print</Button>

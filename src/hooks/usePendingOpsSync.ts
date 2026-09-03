@@ -365,6 +365,34 @@ export function usePendingOpsSync(businessId: string | undefined) {
               processed.push(op.id);
               break;
             }
+
+            case 'delivery_note_create': {
+              const { data: dnId, error: dnErr } = await (supabase.rpc as any)('create_delivery_note_with_items', {
+                p_business_id: businessId,
+                p_header: op.payload.header,
+                p_items: op.payload.items,
+              });
+              if (dnErr) throw dnErr;
+              processed.push(op.id);
+              break;
+            }
+
+            case 'delivery_note_status': {
+              const { error: dnStErr } = await supabase.rpc('update_delivery_note_status' as any, {
+                p_delivery_note_id: op.payload.id,
+                p_status: op.payload.status,
+              });
+              if (dnStErr) throw dnStErr;
+              processed.push(op.id);
+              break;
+            }
+
+            case 'delivery_note_delete': {
+              const { error: dnDelErr } = await supabase.from('delivery_notes').update({ deleted_at: new Date().toISOString() }).eq('id', op.payload.id);
+              if (dnDelErr) throw dnDelErr;
+              processed.push(op.id);
+              break;
+            }
           }
         } catch (e) {
           const errorMsg = e instanceof Error ? e.message : String(e);

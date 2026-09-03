@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, LogOut, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText, LayoutGrid } from "lucide-react";
+import { ArrowLeft, LogOut, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText, LayoutGrid, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import SyncStatusBanner from "@/components/SyncStatusBanner";
 import ReceiptModal from "@/components/ReceiptModal";
 import LockScreen from "@/components/LockScreen";
 import QuotationTab from "@/components/QuotationTab";
+import DeliveryNoteTab from "@/components/DeliveryNoteTab";
 import MenuModifierPicker, { ModifierPick } from "@/components/MenuModifierPicker";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useBusiness } from "@/hooks/useBusiness";
@@ -572,6 +573,10 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
     setActiveTab("sale");
   };
 
+  const handleCreateDeliveryNoteFromQuotation = (_quotationId: string) => {
+    setActiveTab("delivery-notes");
+  };
+
   // Only block on initial loading. Once business+products are loaded, never
   // unmount on background refetches — that causes any open view (e.g. a
   // quotation detail) to disappear and look like a page reload.
@@ -709,6 +714,9 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
               </TabsTrigger>
               <TabsTrigger value="quotations" className="flex items-center gap-1.5">
                 <FileText className="h-4 w-4" /> Quotations
+              </TabsTrigger>
+              <TabsTrigger value="delivery-notes" className="flex items-center gap-1.5">
+                <Truck className="h-4 w-4" /> Delivery Notes
               </TabsTrigger>
             </TabsList>
 
@@ -1061,6 +1069,21 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                 products={activeProducts}
                 isService={isService}
                 onConvertToSale={handleConvertQuotation}
+                onCreateDeliveryNote={handleCreateDeliveryNoteFromQuotation}
+              />
+            </TabsContent>
+
+            <TabsContent value="delivery-notes">
+              <DeliveryNoteTab
+                businessId={business.id}
+                businessName={business.name}
+                businessDetails={{
+                  phone: business.phone,
+                  email: business.email,
+                  address: business.address,
+                  logoUrl: business.logoUrl,
+                }}
+                products={activeProducts}
               />
             </TabsContent>
           </Tabs>

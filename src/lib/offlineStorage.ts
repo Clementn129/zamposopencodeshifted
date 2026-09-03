@@ -918,7 +918,8 @@ interface PendingOp {
     | 'settings_update'
     | 'sale_delete'
     | 'debtor_delete'
-    | 'quotation_create' | 'quotation_update' | 'quotation_delete';
+    | 'quotation_create' | 'quotation_update' | 'quotation_delete'
+    | 'delivery_note_create' | 'delivery_note_status' | 'delivery_note_delete';
   payload: any;
   createdAt: string;
   retryCount?: number;
