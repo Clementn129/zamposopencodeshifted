@@ -2,7 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useBusiness } from '@/hooks/useBusiness';
+import { useBusinessContext } from '@/hooks/BusinessContext';
 import { useBusinessType } from '@/hooks/useBusinessType';
+import { BranchSwitcher } from '@/components/BranchSwitcher';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,7 +16,7 @@ import LowStockAlert from '@/components/LowStockAlert';
 import DashboardNotifications from '@/components/DashboardNotifications';
 import DashboardStats from '@/components/DashboardStats';
 
-import { Store, ShoppingCart, Package, CreditCard, LogOut, Copy, Receipt, Settings as SettingsIcon, Users, Wallet, Briefcase, BarChart3, FileClock, UserCheck, CalendarClock, ChefHat, LayoutGrid } from 'lucide-react';
+import { Store, ShoppingCart, Package, CreditCard, LogOut, Copy, Receipt, Settings as SettingsIcon, Users, Wallet, Briefcase, BarChart3, FileClock, UserCheck, CalendarClock, ChefHat, LayoutGrid, Building2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -22,6 +24,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user, signOut, isLoading: authLoading } = useAuthContext();
   const { business, isLoading: businessLoading, error: businessError, refetch, checkSubscriptionStatus } = useBusiness(user?.id);
+  const { isMultiBranch } = useBusinessContext();
   const { labels, isService, isRestaurant } = useBusinessType(business?.id, business?.businessType);
   const { toast } = useToast();
   const [hasSalesToday, setHasSalesToday] = useState(false);
@@ -206,6 +209,7 @@ const Dashboard = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <BranchSwitcher />
               {getStatusBadge()}
             </div>
           </div>
@@ -356,6 +360,17 @@ const Dashboard = () => {
                 </CardContent>
               </Card>
             </Link>
+            {isMultiBranch && (
+              <Link to="/branches">
+                <Card className="product-card h-full">
+                  <CardContent className="flex flex-col items-center justify-center p-4 text-center">
+                    <Building2 className="w-6 h-6 text-primary mb-2" />
+                    <h3 className="font-medium text-sm">All Branches</h3>
+                    <p className="text-xs text-muted-foreground">Group overview</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
             <Link to="/audit-log">
               <Card className="product-card h-full">
                 <CardContent className="flex flex-col items-center justify-center p-4 text-center">

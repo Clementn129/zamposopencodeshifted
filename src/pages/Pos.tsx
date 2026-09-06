@@ -20,6 +20,7 @@ import DeliveryNoteTab from "@/components/DeliveryNoteTab";
 import MenuModifierPicker, { ModifierPick } from "@/components/MenuModifierPicker";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useBusiness } from "@/hooks/useBusiness";
+import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { useProducts } from "@/hooks/useProducts";
 import { useSalesSync } from "@/hooks/useSalesSync";
 import { useBusinessType } from "@/hooks/useBusinessType";
@@ -701,6 +702,7 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                   <LogOut className="h-4 w-4 mr-1" /> Logout
                 </Button>
               ) : null}
+              <BranchSwitcher />
               <Button variant="outline" size="sm" onClick={refetchProducts}>Refresh</Button>
             </div>
           </div>

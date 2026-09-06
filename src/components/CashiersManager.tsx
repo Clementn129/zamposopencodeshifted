@@ -71,8 +71,10 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
     void fetchCashiers();
   }, [fetchCashiers]);
 
-  const callFn = useCallback(async (body: Record<string, unknown>) => {
-    const { data, error } = await supabase.functions.invoke('manage-cashier', { body });
+  const callFn = useCallback(async (action: string, payload: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke('manage-cashier', {
+      body: { ...payload, action, business_id: businessId },
+    });
     if (error) {
       // Supabase wraps non-2xx into FunctionsHttpError; try to surface the JSON error
       let msg = error.message;
@@ -85,7 +87,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
       throw new Error(msg);
     }
     return data;
-  }, []);
+  }, [businessId]);
 
   const activeCount = cashiers.filter(c => c.is_active).length;
 
@@ -109,7 +111,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
     }
     setBusy(true);
     try {
-      await callFn({ action: 'create', username, pin: newPin, display_name: newName.trim() || null, role: newRole });
+      await callFn('create', { username, pin: newPin, display_name: newName.trim() || null, role: newRole });
       toast({ title: 'Staff added', description: `${username} can now sign in with their PIN.` });
       setCreateOpen(false);
       setNewUsername(''); setNewName(''); setNewPin(''); setNewRole('cashier');
@@ -129,7 +131,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
     }
     setBusy(true);
     try {
-      await callFn({ action: 'reset_pin', cashier_id: resetTarget.id, pin: resetPin });
+      await callFn('reset_pin', { cashier_id: resetTarget.id, pin: resetPin });
       toast({ title: 'PIN reset', description: `New PIN for ${resetTarget.username} saved.` });
       setResetTarget(null); setResetPin('');
     } catch (e) {
@@ -146,7 +148,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
     }
     setBusy(true);
     try {
-      await callFn({ action: 'set_active', cashier_id: c.id, is_active: !c.is_active });
+      await callFn('set_active', { cashier_id: c.id, is_active: !c.is_active });
       await fetchCashiers();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Failed', description: e instanceof Error ? e.message : 'Unknown error' });
@@ -159,7 +161,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
     if (!confirm(`Delete cashier "${c.username}"? This cannot be undone.`)) return;
     setBusy(true);
     try {
-      await callFn({ action: 'delete', cashier_id: c.id });
+      await callFn('delete', { cashier_id: c.id });
       toast({ title: 'Cashier removed' });
       await fetchCashiers();
     } catch (e) {

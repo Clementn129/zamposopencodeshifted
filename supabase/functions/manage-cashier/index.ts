@@ -106,12 +106,31 @@ Deno.serve(async (req) => {
   if (userErr || !userData.user) return json({ error: "Not authenticated" }, 401);
   const owner = userData.user;
 
-  const { data: biz, error: bizErr } = await admin
-    .from("businesses")
-    .select("id")
-    .eq("user_id", owner.id)
-    .maybeSingle();
-  if (bizErr || !biz) return json({ error: "No business found for this owner" }, 403);
+  // Resolve the target business (the active branch/shop). Legacy fallback for
+  // single-business owners that don't pass a business_id keeps old clients working.
+  const targetBusinessId = typeof body.business_id === "string" ? body.business_id : null;
+
+  let biz: { id: string } | null = null;
+  if (targetBusinessId) {
+    const { data, error } = await admin
+      .from("businesses")
+      .select("id")
+      .eq("id", targetBusinessId)
+      .eq("user_id", owner.id)
+      .maybeSingle();
+    if (error) return json({ error: error.message }, 403);
+    biz = data;
+  } else {
+    const { data, error } = await admin
+      .from("businesses")
+      .select("id")
+      .eq("user_id", owner.id)
+      .order("created_at", { ascending: true })
+      .limit(2);
+    if (error) return json({ error: error.message }, 403);
+    if (data.length === 1) biz = data[0];
+  }
+  if (!biz) return json({ error: "No business found for this owner" }, 403);
 
   try {
     if (action === "create") {

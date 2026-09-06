@@ -440,6 +440,7 @@ export const getCachedSubscription = (): (SubscriptionCache & { cachedAt: string
 
 // Anti-tamper: Store server time reference
 export const cacheServerTime = (serverTime: Date): void => {
+  if (!(serverTime instanceof Date) || Number.isNaN(serverTime.getTime())) return;
   const localTime = new Date();
   const offset = serverTime.getTime() - localTime.getTime();
   localStorage.setItem('zampos_time_offset', offset.toString());

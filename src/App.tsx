@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { BusinessProvider } from "@/hooks/BusinessContext";
 import RequireOwner from "@/components/RequireOwner";
 import RequireKitchen from "@/components/RequireKitchen";
 import RequireMember from "@/components/RequireMember";
@@ -25,6 +26,7 @@ import AffiliateAuth from "./pages/AffiliateAuth";
 import Reports from "./pages/Reports";
 import CashierActivity from "./pages/CashierActivity";
 import AuditLog from "./pages/AuditLog";
+import { GroupOverview } from "./pages/GroupOverview";
 import NotFound from "./pages/NotFound";
 import Kitchen from "./pages/Kitchen";
 import DiningTabs from "./pages/DiningTabs";
@@ -42,31 +44,34 @@ const App = forwardRef<HTMLDivElement>((_, ref) => (
             <Toaster />
             <Sonner />
             <PWAUpdatePrompt />
-            <AppSyncManager />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/auth" element={<Auth />} />
-                <Route path="/admin/login" element={<AdminLogin />} />
-                <Route path="/admin-login" element={<AdminLogin />} />
-                <Route path="/admin" element={<AdminDashboard />} />
-                <Route path="/dashboard" element={<RequireOwner><Dashboard /></RequireOwner>} />
-                <Route path="/pos" element={<Pos />} />
-                <Route path="/kitchen" element={<RequireKitchen><Kitchen /></RequireKitchen>} />
-                <Route path="/tables" element={<RequireMember restaurantOnly><DiningTabs /></RequireMember>} />
-                <Route path="/products" element={<RequireOwner><Products /></RequireOwner>} />
-                <Route path="/subscription" element={<RequireOwner><Subscription /></RequireOwner>} />
-                <Route path="/sales" element={<RequireOwner><SalesHistory /></RequireOwner>} />
-                <Route path="/reports" element={<RequireOwner><Reports /></RequireOwner>} />
-                <Route path="/cashier-activity" element={<RequireOwner><CashierActivity /></RequireOwner>} />
-                <Route path="/audit-log" element={<RequireOwner><AuditLog /></RequireOwner>} />
-                <Route path="/debtors" element={<RequireOwner><Debtors /></RequireOwner>} />
-                <Route path="/settings" element={<RequireOwner><Settings /></RequireOwner>} />
-                <Route path="/affiliate" element={<RequireOwner><Affiliate /></RequireOwner>} />
-                <Route path="/affiliate-auth" element={<AffiliateAuth />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
+            <BusinessProvider>
+              <AppSyncManager />
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/auth" element={<Auth />} />
+                  <Route path="/admin/login" element={<AdminLogin />} />
+                  <Route path="/admin-login" element={<AdminLogin />} />
+                  <Route path="/admin" element={<AdminDashboard />} />
+                  <Route path="/dashboard" element={<RequireOwner><Dashboard /></RequireOwner>} />
+                  <Route path="/pos" element={<Pos />} />
+                  <Route path="/kitchen" element={<RequireKitchen><Kitchen /></RequireKitchen>} />
+                  <Route path="/tables" element={<RequireMember restaurantOnly><DiningTabs /></RequireMember>} />
+                  <Route path="/products" element={<RequireOwner><Products /></RequireOwner>} />
+                  <Route path="/subscription" element={<RequireOwner><Subscription /></RequireOwner>} />
+                  <Route path="/sales" element={<RequireOwner><SalesHistory /></RequireOwner>} />
+                  <Route path="/reports" element={<RequireOwner><Reports /></RequireOwner>} />
+                  <Route path="/branches" element={<RequireOwner><GroupOverview /></RequireOwner>} />
+                  <Route path="/cashier-activity" element={<RequireOwner><CashierActivity /></RequireOwner>} />
+                  <Route path="/audit-log" element={<RequireOwner><AuditLog /></RequireOwner>} />
+                  <Route path="/debtors" element={<RequireOwner><Debtors /></RequireOwner>} />
+                  <Route path="/settings" element={<RequireOwner><Settings /></RequireOwner>} />
+                  <Route path="/affiliate" element={<RequireOwner><Affiliate /></RequireOwner>} />
+                  <Route path="/affiliate-auth" element={<AffiliateAuth />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </BusinessProvider>
           </TooltipProvider>
         </AuthProvider>
       </QueryClientProvider>
