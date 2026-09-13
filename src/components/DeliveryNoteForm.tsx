@@ -14,6 +14,7 @@ interface DeliveryNoteFormProps {
   existingNote?: DeliveryNote | null;
   quotationId?: string | null;
   quotationItems?: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number }> | null;
+  quotationCustomer?: { name?: string | null; phone?: string | null } | null;
   onSave: (
     dn: Omit<DeliveryNote, 'id' | 'deliveryNoteNumber' | 'businessId' | 'createdAt' | 'updatedAt' | 'deletedAt'>,
     items: DeliveryNoteItem[]
@@ -21,16 +22,16 @@ interface DeliveryNoteFormProps {
   onCancel: () => void;
 }
 
-const DeliveryNoteForm = ({ products, existingNote, quotationId, quotationItems, onSave, onCancel }: DeliveryNoteFormProps) => {
+const DeliveryNoteForm = ({ products, existingNote, quotationId, quotationItems, quotationCustomer, onSave, onCancel }: DeliveryNoteFormProps) => {
   const { toast } = useToast();
-  const [customerName, setCustomerName] = useState(existingNote?.customerName || "");
-  const [customerPhone, setCustomerPhone] = useState(existingNote?.customerPhone || "");
+  const [customerName, setCustomerName] = useState(existingNote?.customerName || quotationCustomer?.name || "");
+  const [customerPhone, setCustomerPhone] = useState(existingNote?.customerPhone || quotationCustomer?.phone || "");
   const [deliveryAddress, setDeliveryAddress] = useState(existingNote?.deliveryAddress || "");
   const [driverName, setDriverName] = useState(existingNote?.driverName || "");
   const [carPlate, setCarPlate] = useState(existingNote?.carPlate || "");
   const [notes, setNotes] = useState(existingNote?.notes || "");
   const [status, setStatus] = useState<'pending' | 'delivered'>(existingNote?.status || 'pending');
-  const [items, setItems] = useState<DeliveryNoteItem[]>(existingNote?.items || []);
+  const [items, setItems] = useState<DeliveryNoteItem[]>(existingNote?.items || (quotationItems ?? []));
   const [searchQuery, setSearchQuery] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 

@@ -23,10 +23,11 @@ interface DeliveryNoteTabProps {
   products: Product[];
   quotationId?: string | null;
   quotationItems?: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number }> | null;
+  quotationCustomer?: { name?: string | null; phone?: string | null } | null;
   onClearQuotation?: () => void;
 }
 
-const DeliveryNoteTab = ({ businessId, businessName, businessDetails, products, quotationId, quotationItems, onClearQuotation }: DeliveryNoteTabProps) => {
+const DeliveryNoteTab = ({ businessId, businessName, businessDetails, products, quotationId, quotationItems, quotationCustomer, onClearQuotation }: DeliveryNoteTabProps) => {
   const { toast } = useToast();
   const { deliveryNotes, isLoading, createDeliveryNote, updateDeliveryNoteStatus, softDeleteDeliveryNote, getDeliveryNoteWithItems } = useDeliveryNotes(businessId);
   const [view, setView] = useState<View>('list');
@@ -90,6 +91,7 @@ const DeliveryNoteTab = ({ businessId, businessName, businessDetails, products, 
           products={products}
           quotationId={quotationId}
           quotationItems={quotationItems}
+          quotationCustomer={quotationCustomer}
           onSave={handleSaveNew}
           onCancel={() => { setView('list'); onClearQuotation?.(); }}
         />

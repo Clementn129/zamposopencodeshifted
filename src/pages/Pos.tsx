@@ -93,6 +93,12 @@ const Pos = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("sale");
+  const [dnQuotation, setDnQuotation] = useState<{
+    id: string;
+    customerName: string | null;
+    customerPhone: string | null;
+    items: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number }>;
+  } | null>(null);
 
   // Discount state
   const [saleDiscountType, setSaleDiscountType] = useState<'percentage' | 'amount' | null>(null);
@@ -580,8 +586,40 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
     setActiveTab("sale");
   };
 
-  const handleCreateDeliveryNoteFromQuotation = (_quotationId: string) => {
-    setActiveTab("delivery-notes");
+  const handleCreateDeliveryNoteFromQuotation = async (quotationId: string) => {
+    try {
+      // Load the quotation header + items so the delivery note form can prefill.
+      const { data: qData, error: qErr } = await supabase
+        .from('quotations')
+        .select('id, customer_name, customer_phone')
+        .eq('id', quotationId)
+        .single();
+      if (qErr || !qData) {
+        toast({ variant: "destructive", title: "Error", description: "Quotation not found" });
+        return;
+      }
+      const { data: items, error: iErr } = await supabase
+        .from('quotation_items')
+        .select('product_id, product_name, quantity, unit_price, line_total')
+        .eq('quotation_id', quotationId);
+      if (iErr) throw iErr;
+
+      setDnQuotation({
+        id: quotationId,
+        customerName: qData.customer_name ?? null,
+        customerPhone: qData.customer_phone ?? null,
+        items: (items ?? []).map((i) => ({
+          productId: i.product_id ?? '',
+          productName: i.product_name,
+          quantity: Number(i.quantity),
+          unitPrice: Number(i.unit_price),
+          lineTotal: Number(i.line_total),
+        })),
+      });
+      setActiveTab("delivery-notes");
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message });
+    }
   };
 
   // Only block on initial loading. Once business+products are loaded, never
@@ -1092,6 +1130,14 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                   logoUrl: business.logoUrl,
                 }}
                 products={activeProducts}
+                quotationId={dnQuotation?.id}
+                quotationItems={dnQuotation?.items}
+                quotationCustomer={
+                  dnQuotation
+                    ? { name: dnQuotation.customerName, phone: dnQuotation.customerPhone }
+                    : undefined
+                }
+                onClearQuotation={() => setDnQuotation(null)}
               />
             </TabsContent>
           </Tabs>
