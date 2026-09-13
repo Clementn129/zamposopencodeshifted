@@ -365,7 +365,10 @@ export const BusinessProvider = ({ children }: { children: ReactNode }) => {
       // unmount open dialogs). Keep showing current content until ready.
       setError(null);
       await loadBusinessRow(businessId);
-      window.dispatchEvent(new CustomEvent('zampos:business-changed'));
+      // Pass the target id in the payload so the listener refetches the NEW
+      // branch — reading businessRef here would still hold the stale branch
+      // (React hasn't committed the state update yet) and snap the UI back.
+      window.dispatchEvent(new CustomEvent('zampos:business-changed', { detail: { businessId } }));
     },
     [businesses, loadBusinessRow]
   );
@@ -432,9 +435,10 @@ export const BusinessProvider = ({ children }: { children: ReactNode }) => {
   // update invalidates the row without resetting the user back to the root.
   useEffect(() => {
     if (!isOnline) return;
-    const handler = () => {
+    const handler = (evt: Event) => {
+      const detail = (evt as CustomEvent<{ businessId?: string }>).detail;
       const current = businessRef.current;
-      void fetchAll(current?.id);
+      void fetchAll(detail?.businessId ?? current?.id);
     };
     window.addEventListener('zampos:business-changed', handler);
     return () => window.removeEventListener('zampos:business-changed', handler);

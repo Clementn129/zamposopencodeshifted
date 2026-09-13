@@ -1,7 +1,7 @@
 // Offline storage utilities using IndexedDB and localStorage
 
 const DB_NAME = 'zampos_db';
-const DB_VERSION = 10; // Increment when schema changes; must always be > any previously deployed version
+const DB_VERSION = 11; // Increment when schema changes; must always be > any previously deployed version
 
 // Detect browser's existing DB version to handle downgrade
 const getExistingVersion = (): Promise<number> => {
@@ -188,6 +188,9 @@ const openExistingAndMigrate = async (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains('cart')) {
         db.createObjectStore('cart', { keyPath: 'productId' });
       }
+      if (!db.objectStoreNames.contains('cartLines')) {
+        db.createObjectStore('cartLines', { keyPath: 'lineId' });
+      }
       if (!db.objectStoreNames.contains('stockUpdates')) {
         const stockStore = db.createObjectStore('stockUpdates', { keyPath: 'id' });
         stockStore.createIndex('synced', 'synced', { unique: false });
@@ -257,6 +260,9 @@ const tryCreate = (version: number): Promise<IDBDatabase> => {
 
       if (!db.objectStoreNames.contains('cart')) {
         db.createObjectStore('cart', { keyPath: 'productId' });
+      }
+      if (!db.objectStoreNames.contains('cartLines')) {
+        db.createObjectStore('cartLines', { keyPath: 'lineId' });
       }
 
       if (!db.objectStoreNames.contains('stockUpdates')) {
@@ -477,6 +483,7 @@ export const isOfflineTooLong = (maxDays: number = 35): boolean => {
 
 // Cart operations
 interface CartItem {
+  lineId: string;
   productId: string;
   name: string;
   price: number;
@@ -489,12 +496,22 @@ interface CartItem {
   modifiers?: Array<{ id: string; groupId: string; name: string; priceAdjustment: number }>;
 }
 
+/**
+ * Lines are keyed by product + modifier combo (NOT productId alone) so that
+ * two lines for the same product with different modifiers stay separate.
+ */
+export const computeLineId = (productId: string, modifiers?: Array<{ id: string }>): string => {
+  const modKey = (modifiers ?? []).map((m) => m.id).sort().join('|') || 'plain';
+  return `${productId}::${modKey}`;
+};
+
 export const saveCartItem = async (item: CartItem): Promise<void> => {
+  const record = item.lineId ? item : { ...item, lineId: computeLineId(item.productId, item.modifiers) };
   const db = await getDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['cart'], 'readwrite');
-    const store = transaction.objectStore('cart');
-    const request = store.put(item);
+    const transaction = db.transaction(['cartLines'], 'readwrite');
+    const store = transaction.objectStore('cartLines');
+    const request = store.put(record);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
@@ -503,10 +520,13 @@ export const saveCartItem = async (item: CartItem): Promise<void> => {
 export const getCart = async (): Promise<CartItem[]> => {
   const db = await getDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['cart'], 'readonly');
-    const store = transaction.objectStore('cart');
+    const transaction = db.transaction(['cartLines'], 'readonly');
+    const store = transaction.objectStore('cartLines');
     const request = store.getAll();
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const items = request.result as CartItem[];
+      resolve(items.map((item) => (item.lineId ? item : { ...item, lineId: computeLineId(item.productId, item.modifiers) })));
+    };
     request.onerror = () => reject(request.error);
   });
 };
@@ -514,20 +534,20 @@ export const getCart = async (): Promise<CartItem[]> => {
 export const clearCart = async (): Promise<void> => {
   const db = await getDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['cart'], 'readwrite');
-    const store = transaction.objectStore('cart');
+    const transaction = db.transaction(['cartLines'], 'readwrite');
+    const store = transaction.objectStore('cartLines');
     const request = store.clear();
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 };
 
-export const removeCartItem = async (productId: string): Promise<void> => {
+export const removeCartItem = async (lineId: string): Promise<void> => {
   const db = await getDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['cart'], 'readwrite');
-    const store = transaction.objectStore('cart');
-    const request = store.delete(productId);
+    const transaction = db.transaction(['cartLines'], 'readwrite');
+    const store = transaction.objectStore('cartLines');
+    const request = store.delete(lineId);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });

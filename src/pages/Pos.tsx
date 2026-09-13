@@ -26,12 +26,13 @@ import { useSalesSync } from "@/hooks/useSalesSync";
 import { useBusinessType } from "@/hooks/useBusinessType";
 import { useMenuModifiers } from "@/hooks/useMenuModifiers";
 import { useDiningTables, DiningTable } from "@/hooks/useDiningTables";
-import { saveOfflineSale, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem, queuePendingOp, getCachedDebtors, cacheDebtors, getCachedImageBlob } from "@/lib/offlineStorage";
+import { saveOfflineSale, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem, queuePendingOp, getCachedDebtors, cacheDebtors, getCachedImageBlob, computeLineId } from "@/lib/offlineStorage";
 import { calculateTax, TaxCategory } from "@/lib/tax";
 import { supabase } from "@/integrations/supabase/client";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 
 type CartLine = { 
+  lineId: string; 
   productId: string; 
   name: string; 
   price: number; 
@@ -150,7 +151,9 @@ const Pos = () => {
   }, [authLoading, user, navigate]);
 
   useEffect(() => {
-    getCart().then((items) => setCart(items.map((i) => ({ ...i })))).catch(() => {});
+    getCart()
+      .then((items) => setCart(items.map((i) => ({ ...i, lineId: i.lineId ?? computeLineId(i.productId, i.modifiers) }))))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -207,19 +210,20 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
       return;
     }
 
-    const existing = cart.find((l) => l.productId === productId);
+    const lineId = computeLineId(productId, opts?.modifiers);
+    const existing = cart.find((l) => l.lineId === lineId);
     const nextQty = (existing?.quantity ?? 0) + 1;
     if (p.itemType !== 'service' && nextQty > (p.stock ?? 0)) {
       toast({ variant: "destructive", title: "Not enough stock", description: `${displayName} has only ${p.stock ?? 0} left.` });
       return;
     }
     const unitPrice = opts?.unitPrice ?? p.price ?? 0;
-    const isSameModifiers = JSON.stringify(existing?.modifiers ?? []) === JSON.stringify(opts?.modifiers ?? []);
-    const next = existing && isSameModifiers && existing.price === unitPrice
-      ? cart.map((l) => (l.productId === productId ? { ...l, quantity: nextQty } : l))
-      : [...cart, { productId, name: displayName, price: unitPrice, quantity: 1, costPrice: p.costPrice, taxCategory: p.taxCategory, modifiers: opts?.modifiers ?? [] }];
+    const next = existing && existing.price === unitPrice
+      ? cart.map((l) => (l.lineId === lineId ? { ...l, quantity: nextQty } : l))
+      : [...cart, { lineId, productId, name: displayName, price: unitPrice, quantity: 1, costPrice: p.costPrice, taxCategory: p.taxCategory, modifiers: opts?.modifiers ?? [] }];
     setCart(next);
     await saveCartItem({
+      lineId,
       productId,
       name: displayName,
       price: unitPrice,
@@ -266,33 +270,33 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
   }, [activeTab, productsLoading]);
 
 
-  const decQty = async (productId: string) => {
-    const existing = cart.find((l) => l.productId === productId);
+  const decQty = async (lineId: string) => {
+    const existing = cart.find((l) => l.lineId === lineId);
     if (!existing) return;
     if (existing.quantity <= 1) {
-      setCart(prev => prev.filter((l) => l.productId !== productId));
-      await removeCartItem(productId);
+      setCart(prev => prev.filter((l) => l.lineId !== lineId));
+      await removeCartItem(lineId);
       return;
     }
     const nextQty = existing.quantity - 1;
     const updated = { ...existing, quantity: nextQty };
-    setCart(prev => prev.map((l) => (l.productId === productId ? updated : l)));
+    setCart(prev => prev.map((l) => (l.lineId === lineId ? updated : l)));
     await saveCartItem(updated);
   };
 
-  const updateItemDiscount = async (productId: string, type: 'percentage' | 'amount' | null, value: number) => {
-    const existing = cart.find((l) => l.productId === productId);
+  const updateItemDiscount = async (lineId: string, type: 'percentage' | 'amount' | null, value: number) => {
+    const existing = cart.find((l) => l.lineId === lineId);
     if (!existing) return;
     const updated = { ...existing, discountType: type, discountValue: value };
-    setCart(prev => prev.map((l) => (l.productId === productId ? updated : l)));
+    setCart(prev => prev.map((l) => (l.lineId === lineId ? updated : l)));
     await saveCartItem(updated);
   };
 
-  const updateItemNotes = async (productId: string, notes: string) => {
-    const existing = cart.find((l) => l.productId === productId);
+  const updateItemNotes = async (lineId: string, notes: string) => {
+    const existing = cart.find((l) => l.lineId === lineId);
     if (!existing) return;
     const updated = { ...existing, notes };
-    setCart(prev => prev.map((l) => (l.productId === productId ? updated : l)));
+    setCart(prev => prev.map((l) => (l.lineId === lineId ? updated : l)));
     await saveCartItem(updated);
   };
 
@@ -552,6 +556,7 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
     discValue: number
   ) => {
     const cartLines: CartLine[] = items.map(i => ({
+      lineId: computeLineId(i.productId, (i as { modifiers?: Array<{ id: string }> }).modifiers ?? []),
       productId: i.productId,
       name: i.name,
       price: i.price,
@@ -561,6 +566,7 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
       notes: i.notes,
       costPrice: i.costPrice,
       taxCategory: (i.taxCategory as TaxCategory) || 'taxable',
+      modifiers: (i as { modifiers?: Array<{ id: string; groupId: string; name: string; priceAdjustment: number }> }).modifiers ?? [],
     }));
     setCart(cartLines);
     // Persist each cart line to IndexedDB so cart survives page refresh
@@ -793,13 +799,13 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                   <CardHeader><CardTitle className="text-lg">{isService ? 'Invoice' : 'Cart'}</CardTitle><CardDescription>{isService ? 'Complete transaction' : 'Complete sale'}</CardDescription></CardHeader>
                   <CardContent className="space-y-3">
                     {cart.length === 0 ? <p className="text-sm text-muted-foreground">{isService ? 'No services added.' : 'Cart empty.'}</p> : cart.map((l) => (
-                      <div key={`l_${l.productId}_${l.modifiers?.map((m) => m.id).join('_') ?? 'plain'}`} className="bg-secondary rounded-lg p-3">
+                      <div key={l.lineId} className="bg-secondary rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
                           <div><p className="font-medium">{l.name}</p><p className="text-xs text-muted-foreground">{l.quantity} {labels.quantityLabel} × ZMW {l.price.toFixed(2)}</p></div>
                           <div className="flex gap-1">
-                            <Button variant="outline" size="icon" onClick={() => decQty(l.productId)}><Minus className="h-4 w-4" /></Button>
-                            <Button variant="outline" size="icon" onClick={() => addToCart(l.productId)}><Plus className="h-4 w-4" /></Button>
-                            <Button variant="outline" size="icon" onClick={async () => { setCart(prev => prev.filter((x) => x.productId !== l.productId)); await removeCartItem(l.productId); }}><Trash2 className="h-4 w-4" /></Button>
+                            <Button variant="outline" size="icon" onClick={() => decQty(l.lineId)}><Minus className="h-4 w-4" /></Button>
+                            <Button variant="outline" size="icon" onClick={() => addToCart(l.productId, { modifiers: l.modifiers, unitPrice: l.price })}><Plus className="h-4 w-4" /></Button>
+                            <Button variant="outline" size="icon" onClick={async () => { setCart(prev => prev.filter((x) => x.lineId !== l.lineId)); await removeCartItem(l.lineId); }}><Trash2 className="h-4 w-4" /></Button>
                           </div>
                         </div>
                         {l.modifiers && l.modifiers.length > 0 && (
@@ -811,7 +817,7 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                         <div className="flex items-center gap-2 mt-2">
                           <Select 
                             value={l.discountType || "none"} 
-                            onValueChange={(v) => updateItemDiscount(l.productId, v === 'none' ? null : v as 'percentage' | 'amount', l.discountValue || 0)}
+                            onValueChange={(v) => updateItemDiscount(l.lineId, v === 'none' ? null : v as 'percentage' | 'amount', l.discountValue || 0)}
                           >
                             <SelectTrigger className="w-24 h-8 text-xs">
                               <SelectValue placeholder="Discount" />
@@ -827,7 +833,7 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                               type="number"
                               placeholder="0"
                               value={l.discountValue || ""}
-                              onChange={(e) => updateItemDiscount(l.productId, l.discountType!, Number(e.target.value) || 0)}
+                              onChange={(e) => updateItemDiscount(l.lineId, l.discountType!, Number(e.target.value) || 0)}
                               className="w-20 h-8 text-xs"
                             />
                           )}
@@ -839,7 +845,7 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                               type="text"
                               placeholder="Add notes (e.g., duration, details)"
                               value={l.notes || ""}
-                              onChange={(e) => updateItemNotes(l.productId, e.target.value)}
+                              onChange={(e) => updateItemNotes(l.lineId, e.target.value)}
                               className="h-8 text-xs"
                             />
                           </div>

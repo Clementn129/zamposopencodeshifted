@@ -77,7 +77,17 @@ function buildMultiAccountStorage(): Storage {
 
   return {
     get length() { return ls ? ls.length : 0; },
-    clear() { if (ls) try { ls.clear(); } catch { /* noop */ } },
+    clear() {
+      // Only wipe auth keys (sb-*) + the active-user marker — never the whole
+      // localStorage (offline caches, app settings etc. must survive).
+      if (!ls) return;
+      const keys: string[] = [];
+      for (let i = 0; i < ls.length; i++) {
+        const k = ls.key(i);
+        if (k?.startsWith('sb-') || k === ACTIVE_USER_KEY) keys.push(k);
+      }
+      for (const k of keys) lRemove(k);
+    },
     key(index: number) { return ls ? ls.key(index) : null; },
 
     getItem(key: string): string | null {
@@ -88,6 +98,9 @@ function buildMultiAccountStorage(): Storage {
       if (activeId) {
         const val = lGet(`${key}-${activeId}`);
         if (val) return val;
+        // The active user has no stored session — do NOT resurrect another
+        // account's session here (that caused silent re-login after sign-out).
+        return null;
       }
 
       // 2) Legacy unprefixed key – migrate on first read
@@ -105,37 +118,7 @@ function buildMultiAccountStorage(): Storage {
         return legacy;
       }
 
-      // 3) Scan for any existing user-specific key (pick most recently updated)
-      if (ls) {
-        try {
-          let bestKey: string | null = null;
-          let bestTime = 0;
-          for (let i = 0; i < ls.length; i++) {
-            const k = ls.key(i);
-            if (k?.startsWith(key + '-')) {
-              const val = lGet(k);
-              if (val) {
-                try {
-                  const sess = JSON.parse(val);
-                  const t = sess?.updated_at ? new Date(sess.updated_at).getTime() : 0;
-                  if (t >= bestTime) {
-                    bestTime = t;
-                    bestKey = k;
-                  }
-                } catch {
-                  if (!bestKey) bestKey = k;
-                }
-              }
-            }
-          }
-          if (bestKey) {
-            const userId = bestKey.slice(key.length + 1);
-            setActiveUserId(userId);
-            return lGet(bestKey);
-          }
-        } catch { /* ignore */ }
-      }
-
+      // No active marker -> no session to restore.
       return null;
     },
 
@@ -156,8 +139,10 @@ function buildMultiAccountStorage(): Storage {
     removeItem(key: string): void {
       if (!key.includes('auth-token')) { lRemove(key); return; }
       const activeId = getActiveUserId();
-      if (activeId) { lRemove(`${key}-${activeId}`); return; }
-      lRemove(key);
+      if (activeId) { lRemove(`${key}-${activeId}`); }
+      // Clear the marker so getItem returns null instead of resurrecting
+      // an arbitrary other stored account on the next read.
+      lRemove(ACTIVE_USER_KEY);
     },
   };
 }
