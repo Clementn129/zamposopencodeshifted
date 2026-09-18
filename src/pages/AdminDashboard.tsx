@@ -345,7 +345,7 @@ const AdminDashboard = () => {
 
 
   const handleExportCsv = () => {
-    exportBusinessesToCsv(businesses, 'zampos-businesses');
+    exportBusinessesToCsv(businesses, 'salepoint-businesses');
     toast({ title: 'Exported', description: 'Businesses data downloaded as CSV' });
   };
 

@@ -210,7 +210,7 @@ const AffiliateAuth = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
             <Wallet className="w-8 h-8 text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-display font-bold text-foreground">ZamPOS Affiliates</h1>
+          <h1 className="text-3xl font-display font-bold text-foreground">Sale Point Affiliates</h1>
           <p className="text-muted-foreground mt-2">Earn K20 per business you onboard</p>
         </div>
 
@@ -342,7 +342,7 @@ const AffiliateAuth = () => {
 
         <div className="text-center mt-4">
           <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-            <ArrowLeft className="h-4 w-4 mr-2" /> Back to ZamPOS
+            <ArrowLeft className="h-4 w-4 mr-2" /> Back to Sale Point
           </Button>
         </div>
       </div>

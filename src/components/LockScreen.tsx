@@ -20,7 +20,7 @@ const MONTH_OPTIONS = [1, 3, 6, 12];
 
 const buildWhatsAppRenewalLink = (paymentCode: string, months: number, amount: number) => {
   const message = [
-    'Hello ZamPOS Team,',
+    'Hello Sale Point Team,',
     '',
     `I want to renew my subscription for ${months} month${months > 1 ? 's' : ''} (ZMW ${amount}).`,
     `My Payment Code is: ${paymentCode}`,
@@ -104,7 +104,7 @@ const LockScreen = ({ paymentCode, businessId, daysExpired = 0, onRetrySync, isS
             </div>
             <CardTitle className="text-lg text-destructive">Subscription Expired</CardTitle>
             <CardDescription className="text-sm">
-              Your subscription has expired. Renew to continue using ZamPOS.
+              Your subscription has expired. Renew to continue using Sale Point.
             </CardDescription>
           </CardHeader>
 

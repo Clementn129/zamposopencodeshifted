@@ -17,7 +17,7 @@ const MONTH_OPTIONS = [1, 3, 6, 12];
 
 const buildWhatsAppRenewalLink = (paymentCode: string, months: number, amount: number, cashiers: number) => {
   const lines = [
-    "Hello ZamPOS Team,",
+    "Hello Sale Point Team,",
     "",
     "I want to renew my subscription for " + months + " month" + (months > 1 ? "s" : "") + " (ZMW " + amount + ").",
     "Active cashiers: " + cashiers,

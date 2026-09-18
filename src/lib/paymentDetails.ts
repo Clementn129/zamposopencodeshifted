@@ -72,7 +72,7 @@ export const buildWhatsAppPaymentLink = (args: {
   const { paymentCode, amountZmw, userEmail } = args;
 
   const message = [
-    "Hello, I want to renew my ZamPOS subscription.",
+    "Hello, I want to renew my Sale Point subscription.",
     "",
     `Reference / Payment Code: ${paymentCode}`,
     userEmail ? `User: ${userEmail}` : undefined,

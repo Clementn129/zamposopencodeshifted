@@ -1,5 +1,5 @@
 {
-  "name": "zampos",
+  "name": "salepoint-pos",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -15,8 +15,8 @@
     "preview": "vite preview"
   },
   "build": {
-    "appId": "com.zampos.app",
-    "productName": "ZamPOS",
+    "appId": "com.salepoint.pos",
+    "productName": "Sale Point",
     "directories": {
       "buildResources": "build",
       "output": "dist_electron"

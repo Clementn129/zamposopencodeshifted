@@ -316,7 +316,7 @@ const Auth = () => {
         setLoginPassword(registerPassword);
       } else {
         toast({
-          title: 'Welcome to ZamPOS!',
+          title: 'Welcome to Sale Point!',
           description: 'Your account and business have been created. You have a 3-day free trial.',
         });
       }
@@ -341,7 +341,7 @@ const Auth = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
                 <Store className="w-8 h-8 text-primary-foreground" />
               </div>
-              <h1 className="text-3xl font-display font-bold text-foreground">ZamPOS</h1>
+              <h1 className="text-3xl font-display font-bold text-foreground">Sale Point</h1>
             </div>
             <Card className="border-border/50 shadow-lg">
               <CardContent className="pt-6 text-center space-y-4">
@@ -366,7 +366,7 @@ const Auth = () => {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
               <Store className="w-8 h-8 text-primary-foreground" />
             </div>
-            <h1 className="text-3xl font-display font-bold text-foreground">ZamPOS</h1>
+            <h1 className="text-3xl font-display font-bold text-foreground">Sale Point</h1>
             <p className="text-muted-foreground mt-2">Set your new password</p>
           </div>
 
@@ -453,7 +453,7 @@ const Auth = () => {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
               <Store className="w-8 h-8 text-primary-foreground" />
             </div>
-            <h1 className="text-3xl font-display font-bold text-foreground">ZamPOS</h1>
+            <h1 className="text-3xl font-display font-bold text-foreground">Sale Point</h1>
             <p className="text-muted-foreground mt-2">Reset your password</p>
           </div>
 
@@ -522,7 +522,7 @@ const Auth = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
             <Store className="w-8 h-8 text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-display font-bold text-foreground">ZamPOS</h1>
+          <h1 className="text-3xl font-display font-bold text-foreground">Sale Point</h1>
           <p className="text-muted-foreground mt-2">Point of Sale for Zambian Businesses</p>
         </div>
 

@@ -181,10 +181,10 @@ export function InstallPWAButton({
         <DialogContent className="max-w-[92vw] sm:max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Smartphone className="h-5 w-5 text-primary" /> Install ZamPOS
+              <Smartphone className="h-5 w-5 text-primary" /> Install Sale Point
             </DialogTitle>
             <DialogDescription>
-              Add ZamPOS to your home screen to use it like a native app — even offline.
+              Add Sale Point to your home screen to use it like a native app — even offline.
             </DialogDescription>
           </DialogHeader>
 
@@ -214,7 +214,7 @@ export function InstallPWAButton({
                 </p>
                 <ol className="text-sm space-y-1.5 list-decimal pl-5 text-muted-foreground">
                   <li>Look for the install icon <Download className="inline h-3.5 w-3.5" /> on the right side of the address bar and click it.</li>
-                  <li>Or open the browser menu and click <strong>Install ZamPOS</strong>.</li>
+                  <li>Or open the browser menu and click <strong>Install Sale Point</strong>.</li>
                   <li>Click <strong>Install</strong> to confirm.</li>
                 </ol>
               </div>
@@ -235,12 +235,12 @@ export function InstallPWAButton({
               One-tap install is disabled inside the editor preview. Open the published site
               {" "}
               <a
-                href="https://zampos.lovable.app"
+                href="https://salepointpos.online"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-semibold underline"
               >
-                zampos.lovable.app
+                salepointpos.online
               </a>
               {" "}and tap <strong>Install</strong> there — it will open the install prompt.
             </div>

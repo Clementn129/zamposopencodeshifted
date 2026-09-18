@@ -24,8 +24,8 @@ export default defineConfig(({ mode }) => ({
       devOptions: { enabled: false },
       includeAssets: ["favicon.ico", "icon-192.png", "icon-512.png"],
       manifest: {
-        name: "ZamPOS - Point of Sale",
-        short_name: "ZamPOS",
+        name: "Sale Point",
+        short_name: "Sale Point",
         description: "Offline-first Point of Sale for Zambian Businesses",
         theme_color: "#0D9488",
         background_color: "#0F172A",

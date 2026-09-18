@@ -19,7 +19,7 @@ const painPoints = [
   {
     icon: AlertTriangle,
     title: 'Forgetting who owes you?',
-    desc: 'ZamPOS tracks every credit sale and partial payment automatically.',
+    desc: 'Sale Point tracks every credit sale and partial payment automatically.',
     color: 'text-amber-500',
     bg: 'bg-amber-500/10',
   },
@@ -43,7 +43,7 @@ const testimonials = [
   {
     name: 'Mwila C.',
     business: 'Grocery Store, Lusaka',
-    quote: "I used to write sales in a book and forget who owed me. ZamPOS saved me thousands in lost debts.",
+    quote: "I used to write sales in a book and forget who owed me. Sale Point saved me thousands in lost debts.",
     rating: 5,
   },
   {
@@ -61,15 +61,15 @@ const testimonials = [
 ];
 
 const differentiators = [
-  { icon: WifiOff, title: '100% Offline', desc: 'Most POS systems die without internet. ZamPOS doesn\'t.' },
+  { icon: WifiOff, title: '100% Offline', desc: 'Most POS systems die without internet. Sale Point doesn\'t.' },
   { icon: Smartphone, title: 'Phone-First', desc: 'Designed for your phone — no expensive equipment needed.' },
   { icon: Globe, title: 'Zambian Kwacha', desc: 'Native ZMW support. No USD conversion headaches.' },
   { icon: Zap, title: 'WhatsApp Receipts', desc: 'Share digital receipts with customers instantly.' },
 ];
 
 const faqs = [
-  { q: 'Do I need internet to use ZamPOS?', a: 'No! ZamPOS works 100% offline. Record sales, check stock, and manage debts without any internet connection. Your data syncs automatically when you reconnect.' },
-  { q: 'Can I use it on my phone?', a: 'Yes — ZamPOS is designed for phones first. It works on any smartphone, tablet, or laptop with a browser. No app download needed.' },
+  { q: 'Do I need internet to use Sale Point?', a: 'No! Sale Point works 100% offline. Record sales, check stock, and manage debts without any internet connection. Your data syncs automatically when you reconnect.' },
+  { q: 'Can I use it on my phone?', a: 'Yes — Sale Point is designed for phones first. It works on any smartphone, tablet, or laptop with a browser. No app download needed.' },
   { q: 'What happens after the free trial?', a: 'After your 3-day free trial, simply subscribe to keep all your data and features. If you don\'t subscribe, your account is paused until you do.' },
   { q: 'Is my data safe?', a: 'Absolutely. Your data is encrypted and stored securely in the cloud. Only you can access your business information.' },
   { q: 'Can I export my data?', a: 'Yes! Export your sales history, product list, and reports as CSV files anytime. Your data belongs to you.' },
@@ -99,7 +99,7 @@ const Index = () => {
         <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-primary mb-6 shadow-xl">
           <Store className="w-10 h-10 text-primary-foreground" />
         </div>
-        <h1 className="text-4xl font-display font-bold text-foreground mb-3">ZamPOS</h1>
+        <h1 className="text-4xl font-display font-bold text-foreground mb-3">Sale Point</h1>
         <p className="text-lg text-muted-foreground mb-2 max-w-sm">
           The simple Point of Sale built for Zambian businesses.
         </p>
@@ -159,7 +159,7 @@ const Index = () => {
 
       {/* Competitive Differentiators */}
       <section className="px-6 py-12">
-        <h2 className="text-2xl font-display font-bold text-center mb-2">Why ZamPOS beats the alternatives</h2>
+        <h2 className="text-2xl font-display font-bold text-center mb-2">Why Sale Point beats the alternatives</h2>
         <p className="text-sm text-muted-foreground text-center mb-8">No more pen & paper. No expensive POS hardware.</p>
         <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
           {differentiators.map(d => (
@@ -293,7 +293,7 @@ const Index = () => {
       <section className="px-6 py-12">
         <div className="max-w-sm mx-auto text-center">
           <Wallet className="w-10 h-10 text-primary mx-auto mb-3" />
-          <h2 className="text-xl font-display font-bold mb-2">Earn with ZamPOS</h2>
+          <h2 className="text-xl font-display font-bold mb-2">Earn with Sale Point</h2>
           <p className="text-sm text-muted-foreground mb-4">
             Refer businesses and earn commission on every subscription.
           </p>
@@ -307,7 +307,7 @@ const Index = () => {
 
       {/* Footer */}
       <footer className="px-6 py-8 pb-24 sm:pb-8 border-t text-center text-xs text-muted-foreground">
-        <p>© {new Date().getFullYear()} ZamPOS. Built for Zambian businesses.</p>
+        <p>© {new Date().getFullYear()} Sale Point. Built for Zambian businesses.</p>
       </footer>
 
       {/* Sticky mobile CTA */}

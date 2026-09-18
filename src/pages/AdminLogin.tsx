@@ -86,7 +86,7 @@ const AdminLogin = () => {
             <Shield className="w-8 h-8 text-primary-foreground" />
           </div>
           <h1 className="text-3xl font-display font-bold text-foreground">Admin Portal</h1>
-          <p className="text-muted-foreground mt-2">ZamPOS Super Admin Access</p>
+          <p className="text-muted-foreground mt-2">Sale Point Super Admin Access</p>
         </div>
 
         <Card className="border-border/50 shadow-lg">
@@ -106,7 +106,7 @@ const AdminLogin = () => {
                   <Input
                     id="admin-email"
                     type="email"
-                    placeholder="admin@zampos.com"
+                    placeholder="admin@salepointpos.online"
                     className="pl-10"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}

@@ -233,7 +233,7 @@ const ReceiptModal = ({
           <div class="divider"></div>
           <div class="footer">
             <p>Thank you for your ${isService ? "business" : "purchase"}!</p>
-            <p>Powered by ZamPOS</p>
+            <p>Powered by Sale Point</p>
           </div>
         </body>
       </html>
@@ -283,7 +283,7 @@ const ReceiptModal = ({
     lines.push(`${center}================================`);
     
     lines.push(`${center}<font size='small'>Thank you for your ${isService ? "business" : "purchase"}!</font>`);
-    lines.push(`${center}<font size='small'>Powered by ZamPOS</font>`);
+    lines.push(`${center}<font size='small'>Powered by Sale Point</font>`);
 
     return lines.join("\n");
   };
@@ -510,7 +510,7 @@ const ReceiptModal = ({
 
           <div className="footer text-center text-xs text-gray-500 mt-4">
             <p>Thank you for your {isService ? "business" : "purchase"}!</p>
-            <p>Powered by ZamPOS</p>
+            <p>Powered by Sale Point</p>
           </div>
         </div>
 

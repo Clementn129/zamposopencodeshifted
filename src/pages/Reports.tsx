@@ -154,7 +154,7 @@ const Reports = () => {
 
   const exportCsv = () => {
     const rows: string[] = [];
-    rows.push("ZamPOS Report");
+    rows.push("Sale Point Report");
     rows.push(`Business,${business?.name ?? ""}`);
     rows.push(`Period,${period}`);
     rows.push(`From,${format(range.from, "yyyy-MM-dd HH:mm")}`);
@@ -181,7 +181,7 @@ const Reports = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `zampos-report-${period}-${format(new Date(), "yyyyMMdd-HHmm")}.csv`;
+    a.download = `salepoint-report-${period}-${format(new Date(), "yyyyMMdd-HHmm")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast({ title: "Report exported" });

@@ -1,6 +1,6 @@
 {
-  "name": "ZamPOS - Point of Sale",
-  "short_name": "ZamPOS",
+  "name": "Sale Point",
+  "short_name": "Sale Point",
   "description": "Offline-first Point of Sale for Zambian businesses",
   "start_url": "/",
   "display": "standalone",
