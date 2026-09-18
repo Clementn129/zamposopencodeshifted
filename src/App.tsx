@@ -1,10 +1,10 @@
-import { forwardRef, lazy, Suspense } from "react";
+import { forwardRef, lazy, Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { BusinessProvider } from "@/hooks/BusinessContext";
 import RequireOwner from "@/components/RequireOwner";
@@ -13,6 +13,8 @@ import RequireMember from "@/components/RequireMember";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { AppSyncManager } from "@/components/AppSyncManager";
+import { seoRoutes, SEO_PATHS } from "./pages/seo/routes";
+import { SITE_URL, DEFAULT_TITLE, DEFAULT_DESCRIPTION } from "@/lib/seoDefaults";
 
 // Lightweight public pages load eagerly for a fast first paint (landing, auth).
 import Index from "./pages/Index";
@@ -48,6 +50,26 @@ function PageFallback() {
   );
 }
 
+// Restores the default page title/description/canonical when leaving an SEO page.
+function SeoReset() {
+  const location = useLocation();
+  useEffect(() => {
+    if (SEO_PATHS.includes(location.pathname)) return;
+    document.title = DEFAULT_TITLE;
+    const setMeta = (name: string, content: string) => {
+      const el = document.head.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
+      if (el) el.setAttribute("content", content);
+    };
+    setMeta("description", DEFAULT_DESCRIPTION);
+    setMeta("twitter:description", DEFAULT_DESCRIPTION);
+    const canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (canonical) canonical.setAttribute("href", `${SITE_URL}/`);
+    const jsonLd = document.getElementById("seo-jsonld");
+    if (jsonLd) jsonLd.remove();
+  }, [location.pathname]);
+  return null;
+}
+
 const App = forwardRef<HTMLDivElement>((_, ref) => (
   <div ref={ref}>
     <ErrorBoundary>
@@ -60,6 +82,7 @@ const App = forwardRef<HTMLDivElement>((_, ref) => (
             <BusinessProvider>
               <AppSyncManager />
               <BrowserRouter>
+                <SeoReset />
                 <Suspense fallback={<PageFallback />}>
                   <Routes>
                     <Route path="/" element={<Index />} />
@@ -82,6 +105,9 @@ const App = forwardRef<HTMLDivElement>((_, ref) => (
                     <Route path="/settings" element={<RequireOwner><Settings /></RequireOwner>} />
                     <Route path="/affiliate" element={<RequireOwner><Affiliate /></RequireOwner>} />
                     <Route path="/affiliate-auth" element={<AffiliateAuth />} />
+                    {seoRoutes.map((r) => (
+                      <Route key={r.path} path={r.path} element={<r.Component />} />
+                    ))}
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </Suspense>

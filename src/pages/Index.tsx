@@ -307,6 +307,14 @@ const Index = () => {
 
       {/* Footer */}
       <footer className="px-6 py-8 pb-24 sm:pb-8 border-t text-center text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mb-3 max-w-lg mx-auto">
+          <Link to="/pos-system-zambia" className="hover:text-primary">POS System Zambia</Link>
+          <Link to="/point-of-sale-software-zambia" className="hover:text-primary">POS Software Zambia</Link>
+          <Link to="/free-offline-pos-zambia" className="hover:text-primary">Free Offline POS</Link>
+          <Link to="/restaurant-pos-zambia" className="hover:text-primary">Restaurant POS</Link>
+          <Link to="/inventory-management-zambia" className="hover:text-primary">Inventory Management</Link>
+          <Link to="/debtors-credit-sales-zambia" className="hover:text-primary">Debtors Management</Link>
+        </div>
         <p>© {new Date().getFullYear()} Sale Point. Built for Zambian businesses.</p>
       </footer>
 
