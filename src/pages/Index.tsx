@@ -315,6 +315,9 @@ const Index = () => {
           <Link to="/inventory-management-zambia" className="hover:text-primary">Inventory Management</Link>
           <Link to="/debtors-credit-sales-zambia" className="hover:text-primary">Debtors Management</Link>
         </div>
+        <div className="mb-3">
+          <Link to="/privacy-policy" className="hover:text-primary">Privacy Policy</Link>
+        </div>
         <p>© {new Date().getFullYear()} Sale Point. Built for Zambian businesses.</p>
       </footer>
 

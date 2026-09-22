@@ -20,6 +20,7 @@ import { SITE_URL, DEFAULT_TITLE, DEFAULT_DESCRIPTION } from "@/lib/seoDefaults"
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AdminLogin from "./pages/AdminLogin";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 
 // Heavier app pages load on demand to keep the initial bundle small.
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
@@ -87,6 +88,7 @@ const App = forwardRef<HTMLDivElement>((_, ref) => (
                   <Routes>
                     <Route path="/" element={<Index />} />
                     <Route path="/auth" element={<Auth />} />
+                    <Route path="/privacy-policy" element={<PrivacyPolicy />} />
                     <Route path="/admin/login" element={<AdminLogin />} />
                     <Route path="/admin-login" element={<AdminLogin />} />
                     <Route path="/admin" element={<AdminDashboard />} />

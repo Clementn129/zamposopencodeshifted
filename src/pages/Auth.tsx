@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { getAppUrl } from '@/lib/appUrl';
@@ -883,6 +883,12 @@ const Auth = () => {
             </CardContent>
           </Tabs>
         </Card>
+
+        <p className="text-xs text-muted-foreground text-center mt-4">
+          <Link to="/privacy-policy" className="hover:text-primary">Privacy Policy</Link>
+          <span className="mx-2">·</span>
+          <span>© {new Date().getFullYear()} Sale Point</span>
+        </p>
       </div>
     </div>
   );
