@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useDeliveryNotes, DeliveryNote, DeliveryNoteItem } from "@/hooks/useDeliveryNotes";
 import { Product } from "@/hooks/useProducts";
@@ -25,13 +25,23 @@ interface DeliveryNoteTabProps {
   quotationItems?: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number }> | null;
   quotationCustomer?: { name?: string | null; phone?: string | null } | null;
   onClearQuotation?: () => void;
+  onCreateInvoice?: (deliveryNoteId: string) => void;
 }
 
-const DeliveryNoteTab = ({ businessId, businessName, businessDetails, products, quotationId, quotationItems, quotationCustomer, onClearQuotation }: DeliveryNoteTabProps) => {
+const DeliveryNoteTab = ({ businessId, businessName, businessDetails, products, quotationId, quotationItems, quotationCustomer, onClearQuotation, onCreateInvoice }: DeliveryNoteTabProps) => {
   const { toast } = useToast();
   const { deliveryNotes, isLoading, createDeliveryNote, updateDeliveryNoteStatus, softDeleteDeliveryNote, getDeliveryNoteWithItems } = useDeliveryNotes(businessId);
   const [view, setView] = useState<View>('list');
   const [activeNote, setActiveNote] = useState<DeliveryNote | null>(null);
+
+  // When a quotation is selected in POS, jump straight to the new delivery-note
+  // form with the quotation items prefilled.
+  useEffect(() => {
+    if (quotationId) {
+      setActiveNote(null);
+      setView('new');
+    }
+  }, [quotationId]);
 
   const handleNew = () => {
     setActiveNote(null);
@@ -104,6 +114,7 @@ const DeliveryNoteTab = ({ businessId, businessName, businessDetails, products, 
           businessDetails={businessDetails}
           onBack={() => setView('list')}
           onMarkDelivered={handleMarkDelivered}
+          onCreateInvoice={onCreateInvoice ? () => onCreateInvoice(activeNote.id) : undefined}
         />
       )}
     </>

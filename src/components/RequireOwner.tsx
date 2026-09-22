@@ -27,7 +27,12 @@ const RequireOwner = ({ children, staffRedirect }: Props) => {
     }
   }, [isLoading, user, role, navigate, staffRedirect]);
 
-  if (isLoading || !user || role === 'cashier' || role === 'kitchen_staff' || role === 'unknown') {
+  // Never block on the loader. `isLoading` is bounded by a short timeout, and an
+// unknown role (server unreachable) must NOT leave the screen stuck on an
+// eternal "Loading…" — real authorization is enforced server-side via RLS, so
+// the gate here is UX only. With a signed-in user we render immediately;
+// offline logins keep their correct role via the cached-role fallback.
+  if (isLoading || !user || role === 'cashier' || role === 'kitchen_staff') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <p className="text-muted-foreground">Loading…</p>

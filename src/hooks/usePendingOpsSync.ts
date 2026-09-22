@@ -1,10 +1,14 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { getPendingOps, removePendingOp, updatePendingOpRetry, cacheProducts, cacheDebtors, generateOfflineId, getPendingImageUpload, removePendingImageUpload } from "@/lib/offlineStorage";
+import { getPendingOps, removePendingOp, updatePendingOpRetry, cacheProducts, cacheDebtors, cacheInvoices, generateOfflineId, getPendingImageUpload, removePendingImageUpload, getPermanentlyFailedOps, resetFailedOps } from "@/lib/offlineStorage";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 // Maximum number of retries before marking an op as permanently failed
 const MAX_RETRIES = 5;
+
+// Shared across hook instances so duplicate mounts (AppSyncManager + page-level
+// banners) never process the same ops concurrently.
+let globalOpsSyncInFlight = false;
 
 const resolvePendingImageUrl = async (imageUrl: string | null | undefined, bId: string): Promise<string | null> => {
   if (!imageUrl || !imageUrl.startsWith('pending:')) return imageUrl ?? null;
@@ -21,14 +25,52 @@ const resolvePendingImageUrl = async (imageUrl: string | null | undefined, bId: 
   return path;
 };
 
+const isUuid = (v: string): boolean => /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
+
+// Offline-created invoices carry an `offline_*` local id. Resolve it to the
+// real DB id so table-update ops (soft delete, item re-insert) target the row
+// created by the earlier `invoice_create` replay.
+const resolveInvoiceId = async (id: string): Promise<string | null> => {
+  if (!id) return null;
+  if (isUuid(id)) return id;
+  const { data } = await supabase.from('invoices').select('id').eq('offline_id', id).maybeSingle();
+  return data?.id ?? null;
+};
+
 export function usePendingOpsSync(businessId: string | undefined) {
   const { isOnline } = useOnlineStatus();
-  const processing = useRef(false);
+  const [failedOps, setFailedOps] = useState<Array<{
+    id: string;
+    type: string;
+    lastError?: string;
+    retryCount?: number;
+    createdAt?: string;
+  }>>([]);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+
+  const refreshFailedOps = useCallback(async () => {
+    if (!businessId) {
+      setFailedOps([]);
+      return;
+    }
+    try {
+      const failed = await getPermanentlyFailedOps(businessId);
+      setFailedOps(failed.map((op) => ({
+        id: op.id,
+        type: op.type,
+        lastError: op.lastError,
+        retryCount: op.retryCount,
+        createdAt: op.createdAt,
+      })));
+    } catch {
+      // ignore
+    }
+  }, [businessId]);
 
   const sync = useCallback(async () => {
-    if (!businessId || !isOnline || processing.current) return;
+    if (!businessId || !isOnline || globalOpsSyncInFlight) return;
 
-    processing.current = true;
+    globalOpsSyncInFlight = true;
     try {
       const ops = await getPendingOps(businessId);
       if (ops.length === 0) return;
@@ -230,7 +272,7 @@ export function usePendingOpsSync(businessId: string | undefined) {
                 business_id: businessId,
                 name: op.payload.name,
                 amount: op.payload.amount,
-                expense_date: op.payload.expenseDate,
+                expense_date: op.payload.expense_date ?? op.payload.expenseDate,
                 notes: op.payload.notes || null,
                 category: op.payload.category || 'business',
               });
@@ -393,6 +435,63 @@ export function usePendingOpsSync(businessId: string | undefined) {
               processed.push(op.id);
               break;
             }
+
+            case 'invoice_create': {
+              const { error: invErr } = await (supabase.rpc as any)('create_invoice_with_items', {
+                p_business_id: businessId,
+                p_header: op.payload.header,
+                p_items: op.payload.items,
+                p_offline_id: op.payload.offlineId || null,
+              });
+              if (invErr) throw invErr;
+              processed.push(op.id);
+              break;
+            }
+
+            case 'invoice_update': {
+              const realId = await resolveInvoiceId(op.payload.id);
+              if (!realId) throw new Error('Invoice not found');
+              const { error: invUpdErr } = await supabase.from('invoices').update(op.payload.header).eq('id', realId);
+              if (invUpdErr) throw invUpdErr;
+              await supabase.from('invoice_items').delete().eq('invoice_id', realId);
+              if (op.payload.items?.length) {
+                const { error: invItemsErr } = await supabase.from('invoice_items').insert(
+                  op.payload.items.map((i: any) => ({ ...i, invoice_id: realId }))
+                );
+                if (invItemsErr) throw invItemsErr;
+              }
+              processed.push(op.id);
+              break;
+            }
+
+            case 'invoice_status': {
+              const { error: invStErr } = await (supabase.rpc as any)('update_invoice_status', {
+                p_invoice_id: op.payload.id,
+                p_status: op.payload.status,
+              });
+              if (invStErr) throw invStErr;
+              processed.push(op.id);
+              break;
+            }
+
+            case 'invoice_pay': {
+              const { error: invPayErr } = await (supabase.rpc as any)('pay_invoice', {
+                p_invoice_id: op.payload.id,
+                p_payment_method: op.payload.paymentMethod || 'cash',
+              });
+              if (invPayErr) throw invPayErr;
+              processed.push(op.id);
+              break;
+            }
+
+            case 'invoice_delete': {
+              const realId = await resolveInvoiceId(op.payload.id);
+              if (!realId) throw new Error('Invoice not found');
+              const { error: invDelErr } = await supabase.from('invoices').update({ deleted_at: new Date().toISOString() }).eq('id', realId);
+              if (invDelErr) throw invDelErr;
+              processed.push(op.id);
+              break;
+            }
           }
         } catch (e) {
           const errorMsg = e instanceof Error ? e.message : String(e);
@@ -462,18 +561,89 @@ export function usePendingOpsSync(businessId: string | undefined) {
               dueDate: d.due_date,
             })));
           }
+
+          const { data: invData } = await supabase
+            .from('invoices')
+            .select('id, business_id, invoice_number, offline_id, customer_name, customer_phone, customer_email, customer_tpin, subtotal, discount_type, discount_value, discount_amount, tax_amount, total, status, issued_date, due_date, payment_method, quotation_id, delivery_note_id, converted_sale_id, notes, created_at, updated_at, deleted_at')
+            .eq('business_id', businessId)
+            .limit(1000);
+          if (invData) {
+            await cacheInvoices(invData.map((i: any) => ({
+              id: i.id,
+              businessId: i.business_id,
+              invoiceNumber: i.invoice_number,
+              offlineId: i.offline_id,
+              customerName: i.customer_name,
+              customerPhone: i.customer_phone,
+              customerEmail: i.customer_email,
+              customerTpin: i.customer_tpin,
+              subtotal: Number(i.subtotal),
+              discountType: i.discount_type,
+              discountValue: Number(i.discount_value),
+              discountAmount: Number(i.discount_amount),
+              taxAmount: Number(i.tax_amount ?? 0),
+              total: Number(i.total),
+              status: i.status,
+              issuedDate: i.issued_date,
+              dueDate: i.due_date,
+              paymentMethod: i.payment_method,
+              quotationId: i.quotation_id,
+              deliveryNoteId: i.delivery_note_id,
+              convertedSaleId: i.converted_sale_id,
+              notes: i.notes,
+              createdAt: i.created_at,
+              updatedAt: i.updated_at,
+              deletedAt: i.deleted_at,
+            })));
+          }
         } catch {
           // cache refresh failed silently
         }
 
         window.dispatchEvent(new CustomEvent("zampos:sync-complete"));
+        supabase.from('businesses').update({ last_sync_at: new Date().toISOString() }).eq('id', businessId).then(() => {}).catch(() => {});
+        setLastSyncAt(new Date().toISOString());
       }
     } catch (e) {
       console.error("Error in pending ops sync:", e);
     } finally {
-      processing.current = false;
+      globalOpsSyncInFlight = false;
+      void refreshFailedOps();
     }
-  }, [businessId, isOnline]);
+  }, [businessId, isOnline, refreshFailedOps]);
+
+  const retryFailedOps = useCallback(async (opIds: string[]) => {
+    if (!businessId || opIds.length === 0) return;
+    try {
+      await resetFailedOps(opIds);
+      await refreshFailedOps();
+      // Kick a sync pass right away so the ops are attempted immediately.
+      setTimeout(() => {
+        sync();
+      }, 500);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId, refreshFailedOps]);
+
+  const clearFailedOps = useCallback(async (opIds: string[]) => {
+    if (opIds.length === 0) return;
+    try {
+      const ops = businessId ? await getPendingOps(businessId) : [];
+      const toRemove = ops.filter((op) => opIds.includes(op.id));
+      for (const op of toRemove) {
+        await removePendingOp(op.id);
+      }
+      await refreshFailedOps();
+    } catch {
+      // ignore
+    }
+  }, [businessId, refreshFailedOps]);
+
+  const refreshPending = useCallback(async () => {
+    await refreshFailedOps();
+  }, [refreshFailedOps]);
 
   useEffect(() => {
     if (!businessId || !isOnline) return;
@@ -491,5 +661,5 @@ export function usePendingOpsSync(businessId: string | undefined) {
     };
   }, [businessId, isOnline, sync]);
 
-  return { syncNow: sync };
+  return { syncNow: sync, failedOps, retryFailedOps, clearFailedOps, refreshFailedOps, lastSyncAt };
 }

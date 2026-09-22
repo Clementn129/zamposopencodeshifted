@@ -243,7 +243,16 @@ const SalesHistory = () => {
       if (!onlineSalesFetched) {
         const cached = await getCachedSalesHistory(business.id);
         if (cached.length > 0) {
-          setSales(cached as Sale[]);
+          const filtered = cached
+            .filter((s) => {
+              if (dateWindow.from && s.createdAt < dateWindow.from) return false;
+              if (dateWindow.to && s.createdAt > dateWindow.to) return false;
+              return true;
+            })
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+          if (filtered.length > 0) {
+            setSales(filtered as Sale[]);
+          }
         }
       }
 
@@ -1159,6 +1168,7 @@ const SalesHistory = () => {
                 <TabsContent value="expenses" className="space-y-4">
                   <ExpensesSection 
                     businessId={business.id} 
+                    isOnline={isOnline}
                     onExpenseChanged={fetchData}
                   />
                 </TabsContent>

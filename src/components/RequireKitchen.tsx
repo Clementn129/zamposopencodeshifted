@@ -18,8 +18,6 @@ const RequireKitchen = ({ children }: Props) => {
   const { business, isLoading: bizLoading } = useBusiness(user?.id);
   const navigate = useNavigate();
 
-  const allowed = role === 'kitchen_staff' || role === 'manager' || role === 'owner' || role === 'super_admin';
-  const isRestaurant = business?.businessType === 'restaurant';
   const notRestaurant = !!business && business.businessType !== 'restaurant';
 
   useEffect(() => {
@@ -38,7 +36,7 @@ const RequireKitchen = ({ children }: Props) => {
     }
   }, [isLoading, bizLoading, user, role, business, navigate]);
 
-  if (isLoading || bizLoading || !user || !allowed || notRestaurant) {
+  if (isLoading || bizLoading || !user || notRestaurant) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <p className="text-muted-foreground">Loading…</p>

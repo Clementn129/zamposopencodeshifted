@@ -12,7 +12,10 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { generateOfflineId, queuePendingOp } from '@/lib/offlineStorage';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { generateOfflineId, queuePendingOp, cacheExpenses, getCachedExpenses } from '@/lib/offlineStorage';
+
+const NETWORK_ERROR_RE = /fetch|network|timeout|offline|failed to connect|load failed|networkerror/i;
 
 // 'personal' in the DB now represents Owner Drawings (money the owner takes
 // out for personal use). Both categories reduce available business cash, but
@@ -39,8 +42,13 @@ type ExpensesSectionProps = {
   onExpenseChanged?: () => void;
 };
 
-const ExpensesSection = ({ businessId, isOnline = true, onExpenseChanged }: ExpensesSectionProps) => {
+const ExpensesSection = ({ businessId, isOnline: isOnlineProp, onExpenseChanged }: ExpensesSectionProps) => {
   const { toast } = useToast();
+  const { isOnline: detectedOnline } = useOnlineStatus();
+  // The only caller (SalesHistory) doesn't pass an isOnline prop, so without
+  // this the section would default to always-online and hit the network even
+  // when offline — producing "Failed to fetch" errors on add/delete.
+  const isOnline = isOnlineProp ?? detectedOnline;
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -66,25 +74,84 @@ const ExpensesSection = ({ businessId, isOnline = true, onExpenseChanged }: Expe
 
       if (error) throw error;
 
-      setExpenses((data || []).map((e: any) => ({
+      const mapped = (data || []).map((e: any) => ({
         id: e.id,
         name: e.name,
         amount: Number(e.amount),
         expenseDate: e.expense_date,
         notes: e.notes,
         category: (e.category ?? 'business') as ExpenseCategory,
-      })));
+      }));
+      setExpenses(mapped);
+      cacheExpenses(
+        businessId,
+        mapped.map((e) => ({
+          id: e.id,
+          businessId,
+          name: e.name,
+          amount: e.amount,
+          expense_date: e.expenseDate,
+          notes: e.notes,
+          category: e.category,
+        }))
+      ).catch(() => {});
     } catch (e) {
       console.error('Failed to fetch expenses:', e);
+      // Even if connectivity looks fine, a network-class failure (flaky link,
+      // mid-switch) should fall back to the cached list, not blank the section.
+      const message = e instanceof Error ? e.message : String(e);
+      if (NETWORK_ERROR_RE.test(message)) {
+        const cached = await getCachedExpenses(businessId).catch(() => []);
+        if (cached.length > 0) {
+          setExpenses(
+            cached
+              .map((c) => ({
+                id: c.id,
+                name: c.name,
+                amount: Number(c.amount),
+                expenseDate: c.expense_date,
+                notes: c.notes,
+                category: (c.category ?? 'business') as ExpenseCategory,
+              }))
+              .sort((a, b) => (a.expenseDate < b.expenseDate ? 1 : a.expenseDate > b.expenseDate ? -1 : 0))
+          );
+        }
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (businessId && isOnline) {
+    if (!businessId) return;
+    if (isOnline) {
       fetchExpenses();
+      return;
     }
+    // Offline: read the local cache so the list, totals and actions still work
+    // instead of leaving the section stuck on "Loading...".
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const cached = await getCachedExpenses(businessId);
+      if (cancelled) return;
+      setExpenses(
+        cached
+          .map((e) => ({
+            id: e.id,
+            name: e.name,
+            amount: Number(e.amount),
+            expenseDate: e.expense_date,
+            notes: e.notes,
+            category: (e.category ?? 'business') as ExpenseCategory,
+          }))
+          .sort((a, b) => (a.expenseDate < b.expenseDate ? 1 : a.expenseDate > b.expenseDate ? -1 : 0))
+      );
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [businessId, isOnline]);
 
   const visibleExpenses = useMemo(
@@ -155,15 +222,23 @@ const ExpensesSection = ({ businessId, isOnline = true, onExpenseChanged }: Expe
           payload: expenseData,
           createdAt: new Date().toISOString(),
         });
-        // Update local state immediately
-        setExpenses(prev => [{
+        // Update local state + cache immediately
+        const newExpense = {
           id: opId,
           name: expenseData.name,
           amount: expenseData.amount,
           expenseDate: expenseData.expense_date,
           notes: expenseData.notes,
           category: expenseData.category as ExpenseCategory,
-        }, ...prev]);
+        };
+        setExpenses(prev => {
+          const next = [newExpense, ...prev];
+          void cacheExpenses(
+            businessId,
+            next.map((e) => ({ id: e.id, businessId, name: e.name, amount: e.amount, expense_date: e.expenseDate, notes: e.notes, category: e.category }))
+          ).catch(() => {});
+          return next;
+        });
         toast({ title: 'Expense Saved Offline' });
         setOpen(false);
         resetForm();
@@ -198,7 +273,14 @@ const ExpensesSection = ({ businessId, isOnline = true, onExpenseChanged }: Expe
           payload: { id },
           createdAt: new Date().toISOString(),
         });
-        setExpenses(prev => prev.filter(e => e.id !== id));
+        setExpenses(prev => {
+          const next = prev.filter(e => e.id !== id);
+          void cacheExpenses(
+            businessId,
+            next.map((e) => ({ id: e.id, businessId, name: e.name, amount: e.amount, expense_date: e.expenseDate, notes: e.notes, category: e.category }))
+          ).catch(() => {});
+          return next;
+        });
         toast({ title: 'Expense Deleted Offline' });
         onExpenseChanged?.();
         return;

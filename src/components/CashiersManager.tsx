@@ -9,6 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+
+const NETWORK_ERROR_RE = /fetch|network|failed to connect|timeout|offline/i;
 
 interface Cashier {
   id: string;
@@ -37,6 +40,7 @@ interface Props {
 
 const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = false }: Props) => {
   const { toast } = useToast();
+  const { isOnline } = useOnlineStatus();
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -53,6 +57,13 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
   const [resetPin, setResetPin] = useState('');
 
   const fetchCashiers = useCallback(async () => {
+    if (!isOnline) {
+      // Don't hit the network (or alarm the user with an error toast) when we
+      // know we're offline. Settings stays usable; the list will load when
+      // the connection returns.
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase
       .from('business_cashiers')
@@ -60,12 +71,18 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
       .eq('business_id', businessId)
       .order('created_at', { ascending: true });
     if (error) {
-      toast({ variant: 'destructive', title: 'Failed to load cashiers', description: error.message });
+      // Network-class failures (flaky link, still mid-switch) are not a real
+      // cashier problem — don't surface a scary toast for them.
+      if (NETWORK_ERROR_RE.test(error.message)) {
+        console.warn('Cashiers fetch failed (likely offline):', error.message);
+      } else {
+        toast({ variant: 'destructive', title: 'Failed to load cashiers', description: error.message });
+      }
     } else {
       setCashiers(data ?? []);
     }
     setLoading(false);
-  }, [businessId, toast]);
+  }, [businessId, isOnline, toast]);
 
   useEffect(() => {
     void fetchCashiers();
@@ -91,6 +108,12 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
 
   const activeCount = cashiers.filter(c => c.is_active).length;
 
+  const requireOnline = (): boolean => {
+    if (isOnline) return true;
+    toast({ title: 'Offline', description: 'Cashiers can only be managed when you are online.' });
+    return false;
+  };
+
   const adminTier = planTier ? getPricingTierByLabel(planTier) : null;
   const cashierCap = adminTier?.maxCashiers ?? null;
   const atCap = cashierCap !== null && activeCount >= cashierCap;
@@ -109,6 +132,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
       toast({ variant: 'destructive', title: 'Invalid PIN', description: 'PIN must be 4-6 digits.' });
       return;
     }
+    if (!requireOnline()) return;
     setBusy(true);
     try {
       await callFn('create', { username, pin: newPin, display_name: newName.trim() || null, role: newRole });
@@ -129,6 +153,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
       toast({ variant: 'destructive', title: 'Invalid PIN', description: 'PIN must be 4-6 digits.' });
       return;
     }
+    if (!requireOnline()) return;
     setBusy(true);
     try {
       await callFn('reset_pin', { cashier_id: resetTarget.id, pin: resetPin });
@@ -146,6 +171,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
       toast({ variant: 'destructive', title: 'Cashier limit reached', description: `Your plan allows a maximum of ${cashierCap} active cashier${cashierCap === 1 ? '' : 's'}. Contact admin to upgrade.` });
       return;
     }
+    if (!requireOnline()) return;
     setBusy(true);
     try {
       await callFn('set_active', { cashier_id: c.id, is_active: !c.is_active });
@@ -159,6 +185,7 @@ const CashiersManager = ({ businessId, paymentCode, planTier, isRestaurant = fal
 
   const handleDelete = async (c: Cashier) => {
     if (!confirm(`Delete cashier "${c.username}"? This cannot be undone.`)) return;
+    if (!requireOnline()) return;
     setBusy(true);
     try {
       await callFn('delete', { cashier_id: c.id });

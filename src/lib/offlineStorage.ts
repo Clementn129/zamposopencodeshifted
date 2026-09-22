@@ -1,7 +1,7 @@
 // Offline storage utilities using IndexedDB and localStorage
 
 const DB_NAME = 'zampos_db';
-const DB_VERSION = 11; // Increment when schema changes; must always be > any previously deployed version
+const DB_VERSION = 13; // Increment when schema changes; must always be > any previously deployed version
 
 // Detect browser's existing DB version to handle downgrade
 const getExistingVersion = (): Promise<number> => {
@@ -110,6 +110,7 @@ interface CachedBusiness {
   logoUrl?: string | null;
   vatNumber?: string | null;
   businessType?: string | null;
+  cachedForUser?: string;
 }
 
 let dbInstance: IDBDatabase | null = null;
@@ -230,6 +231,13 @@ const openExistingAndMigrate = async (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains('pendingImageUploads')) {
         db.createObjectStore('pendingImageUploads', { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains('cashierLookup')) {
+        db.createObjectStore('cashierLookup', { keyPath: 'lookupKey' });
+      }
+      if (!db.objectStoreNames.contains('invoicesCache')) {
+        const invoicesCacheStore = db.createObjectStore('invoicesCache', { keyPath: 'id' });
+        invoicesCacheStore.createIndex('businessId', 'businessId', { unique: false });
+      }
     };
   });
 };
@@ -313,6 +321,13 @@ const tryCreate = (version: number): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains('pendingImageUploads')) {
         db.createObjectStore('pendingImageUploads', { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains('cashierLookup')) {
+        db.createObjectStore('cashierLookup', { keyPath: 'lookupKey' });
+      }
+      if (!db.objectStoreNames.contains('invoicesCache')) {
+        const invoicesCacheStore = db.createObjectStore('invoicesCache', { keyPath: 'id' });
+        invoicesCacheStore.createIndex('businessId', 'businessId', { unique: false });
+      }
     };
   });
 };
@@ -379,13 +394,21 @@ export const cacheProducts = async (products: OfflineProduct[]): Promise<void> =
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['products'], 'readwrite');
     const store = transaction.objectStore('products');
-    const clearRequest = store.clear();
-
-    clearRequest.onerror = () => reject(clearRequest.error);
-    clearRequest.onsuccess = () => {
-      products.forEach((product) => {
-        store.put(product);
-      });
+    // Replace only the affected business's rows. A wholesale store.clear()
+    // would destroy other businesses' cached product lists.
+    const index = store.index('businessId');
+    const delReq = index.openKeyCursor(IDBKeyRange.only(products[0]?.businessId ?? ''));
+    delReq.onerror = () => reject(delReq.error);
+    delReq.onsuccess = () => {
+      const cursor = delReq.result;
+      if (cursor) {
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      } else {
+        products.forEach((product) => {
+          store.put(product);
+        });
+      }
     };
 
     transaction.oncomplete = () => resolve();
@@ -427,6 +450,60 @@ export const updateCachedProductStock = async (productId: string, newStock: numb
       }
     };
     getRequest.onerror = () => reject(getRequest.error);
+  });
+};
+
+// Merge server products into the local cache WITHOUT dropping local state.
+// Products that have pending local work (unsynced stock updates, unsynced
+// sales, pending product ops) keep their local stock — the server hasn't
+// caught up yet, and `cacheProducts` would otherwise wipe the offline floor.
+export const mergeServerProducts = async (businessId: string, serverProducts: OfflineProduct[]): Promise<void> => {
+  if (!businessId) return;
+
+  const [local, stockUpdates, pendingOps, unsyncedSales] = await Promise.all([
+    getCachedProducts(businessId),
+    getUnsyncedStockUpdates(businessId),
+    getPendingOps(businessId),
+    getUnsyncedSales(businessId),
+  ]);
+
+  const localMap = new Map(local.map((p) => [p.id, p]));
+  const locked = new Set<string>();
+  for (const u of stockUpdates) locked.add(u.productId);
+  for (const op of pendingOps) {
+    if (op.type === 'product_create') locked.add((op.payload as any).tempId);
+    if (op.type === 'product_update' || op.type === 'product_deactivate') locked.add((op.payload as any).productId);
+    if (op.type === 'sale_delete' || op.type === 'debtor_delete') {
+      for (const it of ((op.payload as any).items ?? [])) {
+        if (it?.productId) locked.add(it.productId);
+      }
+    }
+  }
+  for (const s of unsyncedSales) {
+    for (const it of ((s as any).items ?? [])) {
+      if (it?.productId) locked.add(it.productId);
+    }
+  }
+
+  const merged: OfflineProduct[] = serverProducts.map((p) => {
+    const lp = localMap.get(p.id);
+    if (locked.has(p.id) && lp) return { ...p, stock: lp.stock };
+    return p;
+  });
+
+  // Keep any local products the server pull didn't return — never drop local rows.
+  const serverIds = new Set(serverProducts.map((p) => p.id));
+  for (const lp of local) {
+    if (!serverIds.has(lp.id)) merged.push(lp);
+  }
+
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['products'], 'readwrite');
+    const store = transaction.objectStore('products');
+    for (const p of merged) store.put(p);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
   });
 };
 
@@ -609,25 +686,27 @@ export const generateOfflineId = (): string => {
   return `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };
 
-// Business cache operations
-export const cacheBusiness = async (business: CachedBusiness): Promise<void> => {
+// Business cache operations.
+// The store is keyed by business id and holds one entry per cached business.
+// Entries are tagged with the user they were cached for (`cachedForUser`) so
+// offline sign-in always restores the right business for the signed-in account
+// instead of whoever logged in last. Writes are upserts — we never clear the
+// store, so a failed write can never wipe an existing cached business.
+export const cacheBusiness = async (business: CachedBusiness, userId?: string): Promise<void> => {
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['business'], 'readwrite');
     const store = transaction.objectStore('business');
-    const clearRequest = store.clear();
-
-    clearRequest.onerror = () => reject(clearRequest.error);
-    clearRequest.onsuccess = () => {
-      store.put(business);
-    };
-
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
+    const request = store.put({
+      ...business,
+      cachedForUser: userId || undefined,
+    });
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
   });
 };
 
-export const getCachedBusiness = async (): Promise<CachedBusiness | null> => {
+export const getCachedBusiness = async (userId?: string): Promise<CachedBusiness | null> => {
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['business'], 'readonly');
@@ -635,8 +714,31 @@ export const getCachedBusiness = async (): Promise<CachedBusiness | null> => {
     const request = store.getAll();
 
     request.onsuccess = () => {
-      const results = request.result;
-      resolve(results.length > 0 ? results[0] : null);
+      const results = request.result as CachedBusiness[];
+      if (results.length === 0) {
+        resolve(null);
+        return;
+      }
+      if (userId) {
+        const mine = results.find((entry) => entry.cachedForUser === userId);
+        if (mine) {
+          resolve(mine);
+          return;
+        }
+        // Pre-per-account data has no tag. If there's exactly one untagged
+        // entry it was this device's single business — keep using it so
+        // existing installs don't lose offline access. Tagged entries belong
+        // to other accounts and are never shown to a different account.
+        const untagged = results.filter((entry) => !entry.cachedForUser);
+        if (untagged.length === 1) {
+          resolve(untagged[0]);
+          return;
+        }
+        resolve(null);
+        return;
+      }
+      // No specific user requested — return any cached business.
+      resolve(results[0]);
     };
     request.onerror = () => reject(request.error);
   });
@@ -661,15 +763,22 @@ export const cacheDebtors = async (debtors: CachedDebtor[]): Promise<void> => {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['debtors'], 'readwrite');
     const store = transaction.objectStore('debtors');
-    const clearRequest = store.clear();
-
-    clearRequest.onerror = () => reject(clearRequest.error);
-    clearRequest.onsuccess = () => {
-      debtors.forEach((debtor) => {
-        store.put(debtor);
-      });
+    // Replace only the affected business's rows. A wholesale store.clear()
+    // would destroy other businesses' cached debtor lists.
+    const index = store.index('businessId');
+    const delReq = index.openKeyCursor(IDBKeyRange.only(debtors[0]?.businessId ?? ''));
+    delReq.onerror = () => reject(delReq.error);
+    delReq.onsuccess = () => {
+      const cursor = delReq.result;
+      if (cursor) {
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      } else {
+        debtors.forEach((debtor) => {
+          store.put(debtor);
+        });
+      }
     };
-
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
@@ -814,17 +923,17 @@ interface CachedSale {
 }
 
 export const cacheSalesHistory = async (businessId: string, sales: CachedSale[]): Promise<void> => {
+  if (!businessId || sales.length === 0) return;
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['salesCache'], 'readwrite');
     const store = transaction.objectStore('salesCache');
-    const clearRequest = store.clear();
-
-    clearRequest.onerror = () => reject(clearRequest.error);
-    clearRequest.onsuccess = () => {
-      sales.forEach((sale) => store.put(sale));
-    };
-
+    // Merge (upsert) rather than clear — the page's windowed fetch and the
+    // background downstream pull must accumulate, not wipe each other. Only
+    // rows for this business are touched so other businesses stay intact.
+    sales.forEach((sale) => {
+      if (sale.businessId === businessId) store.put(sale);
+    });
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
@@ -861,13 +970,20 @@ export const cacheExpenses = async (businessId: string, expenses: CachedExpense[
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['expensesCache'], 'readwrite');
     const store = transaction.objectStore('expensesCache');
-    const clearRequest = store.clear();
-
-    clearRequest.onerror = () => reject(clearRequest.error);
-    clearRequest.onsuccess = () => {
-      expenses.forEach((exp) => store.put(exp));
+    // Replace only this business's rows. A wholesale store.clear() (or
+    // clear-before-put) would wipe every other business's cached expenses.
+    const index = store.index('businessId');
+    const delReq = index.openKeyCursor(IDBKeyRange.only(businessId));
+    delReq.onerror = () => reject(delReq.error);
+    delReq.onsuccess = () => {
+      const cursor = delReq.result;
+      if (cursor) {
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      } else {
+        expenses.forEach((exp) => store.put(exp));
+      }
     };
-
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
@@ -901,13 +1017,20 @@ export const cacheDebtorPayments = async (businessId: string, payments: CachedDe
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['debtorPaymentsCache'], 'readwrite');
     const store = transaction.objectStore('debtorPaymentsCache');
-    const clearRequest = store.clear();
-
-    clearRequest.onerror = () => reject(clearRequest.error);
-    clearRequest.onsuccess = () => {
-      payments.forEach((p) => store.put(p));
+    // Replace only this business's rows — never clear the whole store, which
+    // would destroy other businesses' cached payment history.
+    const index = store.index('businessId');
+    const delReq = index.openKeyCursor(IDBKeyRange.only(businessId));
+    delReq.onerror = () => reject(delReq.error);
+    delReq.onsuccess = () => {
+      const cursor = delReq.result;
+      if (cursor) {
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      } else {
+        payments.forEach((p) => store.put(p));
+      }
     };
-
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
@@ -928,6 +1051,74 @@ export const getCachedDebtorPayments = async (businessId: string): Promise<Cache
   });
 };
 
+// Invoices cache for offline viewing
+interface CachedInvoice {
+  id: string;
+  businessId: string;
+  invoiceNumber: string;
+  offlineId?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
+  customerTpin?: string | null;
+  subtotal: number;
+  discountType?: string | null;
+  discountValue: number;
+  discountAmount: number;
+  taxAmount: number;
+  total: number;
+  status: string;
+  issuedDate: string;
+  dueDate?: string | null;
+  paymentMethod?: string | null;
+  quotationId?: string | null;
+  deliveryNoteId?: string | null;
+  convertedSaleId?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
+export const cacheInvoices = async (businessId: string, invoices: CachedInvoice[]): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['invoicesCache'], 'readwrite');
+    const store = transaction.objectStore('invoicesCache');
+    // Replace only this business's rows. A wholesale store.clear() (or
+    // clear-before-put) would wipe every other business's cached invoices.
+    const index = store.index('businessId');
+    const delReq = index.openKeyCursor(IDBKeyRange.only(businessId));
+    delReq.onerror = () => reject(delReq.error);
+    delReq.onsuccess = () => {
+      const cursor = delReq.result;
+      if (cursor) {
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      } else {
+        invoices.forEach((inv) => store.put(inv));
+      }
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+export const getCachedInvoices = async (businessId: string): Promise<CachedInvoice[]> => {
+  if (!businessId) return [];
+
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['invoicesCache'], 'readonly');
+    const store = transaction.objectStore('invoicesCache');
+    const index = store.index('businessId');
+    const request = index.getAll(IDBKeyRange.only(businessId));
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
 // Pending operations queue for offline CRUD
 interface PendingOp {
   id: string;
@@ -940,7 +1131,8 @@ interface PendingOp {
     | 'sale_delete'
     | 'debtor_delete'
     | 'quotation_create' | 'quotation_update' | 'quotation_delete'
-    | 'delivery_note_create' | 'delivery_note_status' | 'delivery_note_delete';
+    | 'delivery_note_create' | 'delivery_note_status' | 'delivery_note_delete'
+    | 'invoice_create' | 'invoice_update' | 'invoice_status' | 'invoice_pay' | 'invoice_delete';
   payload: any;
   createdAt: string;
   retryCount?: number;
@@ -1100,6 +1292,89 @@ export const removePendingImageUpload = async (id: string): Promise<void> => {
     const transaction = db.transaction(['pendingImageUploads'], 'readwrite');
     const store = transaction.objectStore('pendingImageUploads');
     store.delete(id);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+// Offline cashier login support.
+// Cashier accounts have a deterministic email (c-<shortId>-<username>@zampos.local)
+// and a password derived from the PIN. We cache a lookup keyed by
+// `${businessCode}:${username}` so offline login can find the stored credentials
+// without needing the business id.
+
+/** Derive a cashier account password from their PIN (mirrors server logic). */
+export const cashierPinPassword = (pin: string): string => `zampos-${pin}`;
+
+interface CashierLookup {
+  lookupKey: string;
+  email: string;
+  username: string;
+  businessCode: string;
+}
+
+export const cacheCashierLookup = async (entry: CashierLookup): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['cashierLookup'], 'readwrite');
+    const store = transaction.objectStore('cashierLookup');
+    const request = store.put(entry);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const getCashierLookup = async (lookupKey: string): Promise<CashierLookup | null> => {
+  try {
+    const db = await getDB();
+    return new Promise((resolve) => {
+      const transaction = db.transaction(['cashierLookup'], 'readonly');
+      const store = transaction.objectStore('cashierLookup');
+      const request = store.get(lookupKey);
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+};
+
+// Permanently-failed pending ops — surface these to the user instead of
+// dropping them silently, so nothing is lost without being noticed.
+
+export const getPermanentlyFailedOps = async (businessId: string): Promise<PendingOp[]> => {
+  if (!businessId) return [];
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['pendingOps'], 'readonly');
+    const store = transaction.objectStore('pendingOps');
+    const index = store.index('businessId');
+    const request = index.getAll(IDBKeyRange.only(businessId));
+    request.onsuccess = () => {
+      resolve(request.result.filter((op) => op.permanentlyFailed === true));
+    };
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const resetFailedOps = async (opIds: string[]): Promise<void> => {
+  if (opIds.length === 0) return;
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['pendingOps'], 'readwrite');
+    const store = transaction.objectStore('pendingOps');
+    for (const id of opIds) {
+      const getRequest = store.get(id);
+      getRequest.onsuccess = () => {
+        const op = getRequest.result;
+        if (op) {
+          op.permanentlyFailed = false;
+          op.retryCount = 0;
+          op.lastError = undefined;
+          store.put(op);
+        }
+      };
+    }
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });

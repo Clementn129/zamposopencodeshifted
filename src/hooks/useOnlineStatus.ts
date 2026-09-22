@@ -1,18 +1,116 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+
+// Real connectivity detection.
+//
+// `navigator.onLine` is useless for this in Electron: it only reflects whether
+// an OS network interface is up (e.g. "connected to the shop WiFi/router") and
+// the online/offline DOM events rarely fire on actual internet loss. That kept
+// the app stuck in "online" mode — and every offline branch dead — whenever the
+// internet dropped but the router stayed up.
+//
+// So we probe the Supabase REST endpoint on a timer. Any HTTP response (even a
+// 401 or 404) proves the server is reachable; only timeouts / network errors
+// count as offline. A short debounce prevents flapping on a single hiccup.
+//
+// The probe loop is shared module-wide (a singleton), so every page/hook that
+// pulls useOnlineStatus consumes the same state instead of starting its own
+// timer (the app had 80+ consumers).
+
+const SUPABASE_URL = supabase.supabaseUrl;
+const PROBE_URL = `${SUPABASE_URL}/rest/v1/`;
+const PROBE_INTERVAL_MS = 10_000;
+const PROBE_TIMEOUT_MS = 6_000;
+const OFFLINE_THRESHOLD = 2; // consecutive failed probes before declaring offline
+
+let onlineState = navigator.onLine;
+let probeFailures = 0;
+let probeTimer: ReturnType<typeof setInterval> | null = null;
+let subscriberCount = 0;
+const listeners = new Set<(online: boolean) => void>();
+
+const setOnline = (online: boolean) => {
+  if (onlineState === online) return;
+  onlineState = online;
+  listeners.forEach((listener) => listener(online));
+};
+
+const probeOnce = async (): Promise<boolean> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(SUPABASE_URL && PROBE_URL ? PROBE_URL : SUPABASE_URL, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    // Any HTTP response means the server is reachable — online.
+    return typeof response?.status === "number" && response.status > 0;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const runProbe = async () => {
+  const reachable = await probeOnce();
+  if (reachable) {
+    probeFailures = 0;
+    setOnline(true);
+  } else {
+    probeFailures += 1;
+    if (probeFailures >= OFFLINE_THRESHOLD) {
+      setOnline(false);
+    }
+  }
+};
+
+const ensureProbeLoop = () => {
+  if (probeTimer) return;
+  // Probe immediately on start, then keep probing on an interval.
+  runProbe();
+  probeTimer = setInterval(runProbe, PROBE_INTERVAL_MS);
+};
+
+const stopProbeLoopIfIdle = () => {
+  if (probeTimer && subscriberCount <= 0) {
+    clearInterval(probeTimer);
+    probeTimer = null;
+  }
+};
 
 export const useOnlineStatus = () => {
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isOnline, setIsOnline] = useState(onlineState);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    subscriberCount += 1;
+    ensureProbeLoop();
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    const update = (online: boolean) => setIsOnline(online);
+    listeners.add(update);
+
+    // Browser fast-path: if Chromium *does* fire offline, trust it immediately.
+    // The online event is only a hint — we still confirm with a probe so the
+    // app doesn't flip back to "online" on a router-only link.
+    const handleOffline = () => {
+      probeFailures = OFFLINE_THRESHOLD;
+      setOnline(false);
+      update(false);
+    };
+    const handleOnline = () => {
+      runProbe();
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      listeners.delete(update);
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+      subscriberCount -= 1;
+      stopProbeLoopIfIdle();
     };
   }, []);
 

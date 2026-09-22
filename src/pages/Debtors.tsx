@@ -19,7 +19,7 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useProducts } from '@/hooks/useProducts';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { cacheDebtors, getCachedDebtors, updateCachedDebtor, generateOfflineId, updateCachedProductStock, queuePendingOp } from '@/lib/offlineStorage';
+import { cacheDebtors, getCachedDebtors, updateCachedDebtor, generateOfflineId, updateCachedProductStock, queuePendingOp, saveOfflineSale, markSaleAsSynced } from '@/lib/offlineStorage';
 
 type Debtor = {
   id: string;
@@ -297,60 +297,98 @@ const Debtors = () => {
       }));
       const total = creditCartTotal;
 
+      // OFFLINE-FIRST: persist the sale locally before touching the network so
+      // a flaky connection can never lose it. synced:false keeps it retryable.
+      await saveOfflineSale({
+        id: offlineId,
+        businessId: business!.id,
+        items,
+        subtotal: total,
+        total,
+        discountAmount: 0,
+        discountType: null,
+        paymentMethod: 'credit',
+        createdAt: now,
+        synced: false,
+        taxAmount: 0,
+        taxableAmount: 0,
+        zeroRatedAmount: 0,
+        exemptAmount: 0,
+        customerName: customerName.trim() || null,
+        customerTpin: null,
+        customerPhone: customerPhone.trim() || null,
+        amountPaid: 0,
+        dueDate: dueDate || null,
+      } as any);
+
+      for (const line of creditCart) {
+        const p = activeProducts.find(x => x.id === line.productId);
+        if (p) {
+          await updateCachedProductStock(line.productId, Math.max(0, Number(p.stock ?? 0) - line.quantity));
+        }
+      }
+
       if (isOnline) {
-        const { data: returnedSaleId, error: saleErr } = await (supabase.rpc as any)('sync_offline_sale', {
-          p_business_id: business!.id,
-          p_offline_id: offlineId,
-          p_items: items,
-          p_subtotal: total,
-          p_total: total,
-          p_discount_amount: 0,
-          p_discount_type: null,
-          p_payment_method: 'credit',
-          p_created_at: now,
-          p_tax_amount: 0,
-          p_taxable_amount: 0,
-          p_zero_rated_amount: 0,
-          p_exempt_amount: 0,
-          p_customer_name: customerName.trim(),
-          p_customer_tpin: null,
-          p_amount_paid: 0,
-          p_due_date: dueDate || null,
-          p_customer_phone: customerPhone.trim() || null,
-        });
+        let returnedSaleId: string | null = null;
+        try {
+          const { data: rid, error: saleErr } = await (supabase.rpc as any)('sync_offline_sale', {
+            p_business_id: business!.id,
+            p_offline_id: offlineId,
+            p_items: items,
+            p_subtotal: total,
+            p_total: total,
+            p_discount_amount: 0,
+            p_discount_type: null,
+            p_payment_method: 'credit',
+            p_created_at: now,
+            p_tax_amount: 0,
+            p_taxable_amount: 0,
+            p_zero_rated_amount: 0,
+            p_exempt_amount: 0,
+            p_customer_name: customerName.trim(),
+            p_customer_tpin: null,
+            p_amount_paid: 0,
+            p_due_date: dueDate || null,
+            p_customer_phone: customerPhone.trim() || null,
+          });
+          if (saleErr) throw saleErr;
+          returnedSaleId = (rid as string | null) ?? null;
+          await markSaleAsSynced(offlineId);
 
-        if (saleErr) throw saleErr;
+          const { error: debtorErr } = await supabase.from('debtors').insert({
+            business_id: business!.id,
+            sale_id: returnedSaleId,
+            customer_name: customerName.trim(),
+            customer_phone: customerPhone.trim() || null,
+            amount_owed: total,
+            amount_paid: 0,
+            status: 'unpaid',
+            notes: notes.trim() || null,
+          });
 
-        for (const line of creditCart) {
-          const p = activeProducts.find(x => x.id === line.productId);
-          if (p) {
-            await updateCachedProductStock(line.productId, Math.max(0, Number(p.stock ?? 0) - line.quantity));
+          if (debtorErr) throw debtorErr;
+
+          toast({ title: 'Credit Sale Recorded', description: `ZMW ${total.toFixed(2)} — stock deducted.` });
+          setAddOpen(false);
+          setCreditCart([]);
+          setCustomerName('');
+          setCustomerPhone('');
+          setDueDate('');
+          setNotes('');
+          resetAddForm();
+          if (business?.id) {
+            await fetchDebtors();
           }
+          return;
+        } catch (e) {
+          console.warn('Immediate credit sale sync failed — queuing for retry:', e);
+          returnedSaleId = null;
         }
+      }
 
-        const { error: debtorErr } = await supabase.from('debtors').insert({
-          business_id: business!.id,
-          sale_id: returnedSaleId,
-          customer_name: customerName.trim(),
-          customer_phone: customerPhone.trim() || null,
-          amount_owed: total,
-          amount_paid: 0,
-          status: 'unpaid',
-          notes: notes.trim() || null,
-        });
-
-        if (debtorErr) throw debtorErr;
-
-        toast({ title: 'Credit Sale Recorded', description: `ZMW ${total.toFixed(2)} — stock deducted.` });
-      } else {
-        // Offline: save debtor locally, queue for sync (pending op creates the sale via RPC)
-        for (const line of creditCart) {
-          const p = activeProducts.find(x => x.id === line.productId);
-          if (p) {
-            await updateCachedProductStock(line.productId, Math.max(0, Number(p.stock ?? 0) - line.quantity));
-          }
-        }
-
+      // Online-but-push-failed, or offline: queue the debtor (and linked sale)
+      // so it is created exactly once when the connection recovers.
+      {
         const tempDebtorId = generateOfflineId();
         await cacheDebtors([...(await getCachedDebtors(business!.id)), {
           id: tempDebtorId,

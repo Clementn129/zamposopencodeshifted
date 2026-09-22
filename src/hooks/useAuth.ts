@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent?.includes('Electron');
 const LOADING_TIMEOUT_MS = isElectron ? 3_000 : 15_000;
+const ROLE_CACHE_PREFIX = 'zampos:role:';
 
 /** Maximum time to spend trying to recover a lost session before giving up
  *  and redirecting to login. Prevents the app from hanging forever if
@@ -37,12 +38,26 @@ export const useAuth = () => {
   const isRecoveringRef = useRef(false);
   const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const readCachedRole = useCallback((userId: string): UserRole | null => {
+    try {
+      const value = localStorage.getItem(`${ROLE_CACHE_PREFIX}${userId}`);
+      return value && value !== 'unknown' ? (value as UserRole) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const resolveRole = useCallback(async (_userId: string) => {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const { data, error } = await supabase.rpc('get_my_role');
         if (!error) {
           const role = (data as UserRole) || 'unknown';
+          try {
+            localStorage.setItem(`${ROLE_CACHE_PREFIX}${_userId}`, role);
+          } catch {
+            // non-critical
+          }
           return { role, isSuperAdmin: role === 'super_admin' };
         }
         const msg = String(error?.message || '');
@@ -55,6 +70,11 @@ export const useAuth = () => {
       }
       await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
     }
+    // Offline fallback: keep the last-known role for this user so a dead or
+    // flaky connection can't drop them into an eternal route-guard loader.
+    // The real authorization is enforced server-side (RLS); this is UX only.
+    const cached = readCachedRole(_userId);
+    if (cached) return { role: cached, isSuperAdmin: cached === 'super_admin' };
     return { role: 'unknown' as UserRole, isSuperAdmin: false };
   }, []);
 
@@ -252,6 +272,46 @@ export const useAuth = () => {
             } catch (e) {
               console.warn('Failed to cache credentials for offline use:', e);
             }
+            if (role !== 'super_admin') {
+              try {
+                const { cacheBusiness } = await import('@/lib/offlineStorage');
+                const { data: groupData } = await supabase.rpc('get_my_business_group');
+                const group = (groupData as Array<Record<string, unknown>>) ?? [];
+                const root = group.find((g) => g.branch_kind === 'root') ?? group[0];
+                const rootId = root?.id as string | undefined;
+                if (rootId) {
+                  const { data: row } = await supabase
+                    .from('businesses')
+                    .select('*')
+                    .eq('id', rootId)
+                    .maybeSingle();
+                  if (row) {
+                    await cacheBusiness({
+                      id: row.id,
+                      name: row.name,
+                      paymentCode: row.payment_code,
+                      subscriptionStatus: row.subscription_status,
+                      subscriptionExpiresAt: row.subscription_expires_at,
+                      isLocked: row.is_locked,
+                      lastSyncAt: row.last_sync_at ?? new Date().toISOString(),
+                      phone: row.phone,
+                      email: row.email,
+                      address: row.address,
+                      taxMode: (row.tax_mode ?? 'none') as 'none' | 'vat' | 'custom',
+                      vatRate: Number(row.vat_rate ?? 16),
+                      customTaxName: row.custom_tax_name,
+                      customTaxRate: row.custom_tax_rate != null ? Number(row.custom_tax_rate) : null,
+                      tpin: row.tpin,
+                      logoUrl: row.logo_url,
+                      vatNumber: row.vat_number,
+                      businessType: row.business_type ?? null,
+                    }, data.session.user.id);
+                  }
+                }
+              } catch (e) {
+                console.warn('Failed to cache business for offline use:', e);
+              }
+            }
           }, 0);
         }
       }
@@ -297,6 +357,46 @@ export const useAuth = () => {
     }
   };
 
+  const signInOfflineCashier = async (businessCode: string, username: string, pin: string): Promise<{ error: Error | null }> => {
+    try {
+      const { getCashierLookup, verifyOfflineCredentials, cashierPinPassword } = await import('@/lib/offlineStorage');
+      const lookupKey = `${businessCode.trim().toUpperCase()}:${username.trim().toLowerCase()}`;
+      const lookup = await getCashierLookup(lookupKey);
+      if (!lookup) {
+        return { error: new Error('No cached cashier credentials for this device. Login once while online first.') };
+      }
+      const cached = await verifyOfflineCredentials(lookup.email, cashierPinPassword(pin));
+      if (!cached) {
+        return { error: new Error('Invalid business code, username or PIN') };
+      }
+      const mockUser = {
+        id: cached.userId,
+        email: cached.email,
+        user_metadata: { cashier: true },
+        app_metadata: {},
+        aud: 'authenticated',
+        created_at: cached.lastOnlineLogin,
+      } as User;
+      const mockSession = {
+        access_token: 'offline-session-' + cached.userId,
+        refresh_token: 'offline-refresh-' + cached.userId,
+        expires_in: 86400,
+        expires_at: Math.floor(Date.now() / 1000) + 86400,
+        token_type: 'bearer',
+        user: mockUser,
+      } as Session;
+      applySession(mockSession);
+      setAuthState(prev => ({
+        ...prev,
+        isSuperAdmin: false,
+        role: 'cashier',
+      }));
+      return { error: null };
+    } catch (e) {
+      return { error: new Error('Offline login failed') };
+    }
+  };
+
   /** Safe signOut — never throws, so callers can always navigate after. */
   const signOut = async () => {
     try {
@@ -314,6 +414,7 @@ export const useAuth = () => {
     signUp,
     signIn,
     signInOffline,
+    signInOfflineCashier,
     signOut,
   };
 };

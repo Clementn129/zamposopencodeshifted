@@ -29,9 +29,10 @@ interface QuotationTabProps {
   isService?: boolean;
   onConvertToSale: (items: Array<{ productId: string; name: string; price: number; quantity: number; discountType?: string | null; discountValue?: number }>, discountType: string | null, discountValue: number) => void;
   onCreateDeliveryNote?: (quotationId: string) => void;
+  onCreateInvoice?: (quotationId: string) => void;
 }
 
-const QuotationTab = ({ businessId, businessName, businessDetails, products, isService, onConvertToSale, onCreateDeliveryNote }: QuotationTabProps) => {
+const QuotationTab = ({ businessId, businessName, businessDetails, products, isService, onConvertToSale, onCreateDeliveryNote, onCreateInvoice }: QuotationTabProps) => {
   const { toast } = useToast();
   const { quotations, isLoading, createQuotation, updateQuotation, softDeleteQuotation, getQuotationWithItems } = useQuotations(businessId);
   const [view, setView] = useState<View>('list');
@@ -165,6 +166,7 @@ const QuotationTab = ({ businessId, businessName, businessDetails, products, isS
           onEdit={() => setView('edit')}
           onConvert={() => setConvertId(activeQuotation.id)}
           onCreateDeliveryNote={onCreateDeliveryNote ? () => onCreateDeliveryNote(activeQuotation.id) : undefined}
+          onCreateInvoice={onCreateInvoice ? () => onCreateInvoice(activeQuotation.id) : undefined}
         />
       )}
 

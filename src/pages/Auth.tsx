@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 const Auth = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { signIn, signInOffline, signUp, user, role, isPasswordRecovery } = useAuthContext();
+  const { signIn, signInOffline, signInOfflineCashier, signUp, user, role, isPasswordRecovery } = useAuthContext();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -144,14 +144,44 @@ const Auth = () => {
       const { error: signInErr } = await signIn(email, password);
       if (signInErr) throw signInErr;
 
+      // Cache an offline lookup for this cashier (keyed by code+username) so
+      // they can sign in with no internet next time. Best-effort only.
+      try {
+        const { cacheCashierLookup } = await import('@/lib/offlineStorage');
+        await cacheCashierLookup({
+          lookupKey: `${cashierCode.trim().toUpperCase()}:${cashierUsername.trim().toLowerCase()}`,
+          email,
+          username: cashierUsername.trim().toLowerCase(),
+          businessCode: cashierCode.trim().toUpperCase(),
+        });
+      } catch {
+        // non-fatal
+      }
+
       toast({ title: 'Signed in', description: 'Welcome.' });
       navigate('/pos');
     } catch (err) {
-      toast({
-        variant: 'destructive',
-        title: 'Cashier login failed',
-        description: err instanceof Error ? err.message : 'Check your business code, username and PIN.',
-      });
+      const msg = String(err instanceof Error ? err.message : '').toLowerCase();
+      const isNetworkError = /fetch|network|timeout|offline|failed to connect|load failed|networkerror/i.test(msg);
+      if (isNetworkError) {
+        const { error: offlineError } = await signInOfflineCashier(cashierCode, cashierUsername, cashierPin);
+        if (offlineError) {
+          toast({
+            variant: 'destructive',
+            title: 'Offline login failed',
+            description: offlineError.message,
+          });
+        } else {
+          toast({ title: 'Offline Mode', description: 'Signed in as cashier with cached credentials.' });
+          navigate('/pos');
+        }
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Cashier login failed',
+          description: err instanceof Error ? err.message : 'Check your business code, username and PIN.',
+        });
+      }
     } finally {
       setIsLoading(false);
     }

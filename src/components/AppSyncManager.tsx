@@ -5,6 +5,7 @@ import { useSalesSync } from "@/hooks/useSalesSync";
 import { useStockSync } from "@/hooks/useStockSync";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { usePendingOpsSync } from "@/hooks/usePendingOpsSync";
+import { useDownstreamSync } from "@/hooks/useDownstreamSync";
 import { supabase } from "@/integrations/supabase/client";
 
 export const AppSyncManager = () => {
@@ -15,6 +16,7 @@ export const AppSyncManager = () => {
   useStockSync(business?.id);
   useRealtimeSync(business?.id);
   usePendingOpsSync(business?.id);
+  useDownstreamSync(business?.id);
 
   // Stable ref so the effect doesn't re-create the channel when refetchBusiness
   // identity changes (e.g. on isOnline toggle).

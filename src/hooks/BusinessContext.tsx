@@ -160,11 +160,11 @@ export const BusinessProvider = ({ children }: { children: ReactNode }) => {
       logoUrl: row.logo_url,
       vatNumber: row.vat_number,
       businessType: row.business_type ?? null,
-    });
-  }, []);
+    }, user?.id);
+  }, [user?.id]);
 
   const loadCachedBusiness = useCallback(async () => {
-    const cachedBiz = await getCachedBusiness();
+    const cachedBiz = await getCachedBusiness(user?.id);
     if (cachedBiz) {
       const now = getAdjustedTime();
       const expiry = cachedBiz.subscriptionExpiresAt ? new Date(cachedBiz.subscriptionExpiresAt) : null;
@@ -207,7 +207,7 @@ export const BusinessProvider = ({ children }: { children: ReactNode }) => {
       taxMode: 'none',
       vatRate: 16,
     });
-  }, []);
+  }, [user?.id]);
 
   const updateSubscriptionStatusInDB = useCallback(
     async (bizId: string, currentStatus: string, expiresAt: string | null) => {
@@ -338,7 +338,11 @@ export const BusinessProvider = ({ children }: { children: ReactNode }) => {
           activeId = (bizId as string) ?? null;
         }
         if (!activeId) {
-          setBusiness(null);
+          // No business could be resolved from the server (unreachable, or
+          // this account genuinely has none). Fall back to the cached business
+          // so a dead or flaky connection can never blank out a perfectly good
+          // local session. If nothing is cached either, business stays null.
+          await loadCachedBusiness();
           return;
         }
 

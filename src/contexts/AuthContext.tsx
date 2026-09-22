@@ -12,14 +12,15 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName: string, businessName: string, phone?: string, address?: string, affiliateCode?: string) => Promise<{ data: any; error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInOffline: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signInOfflineCashier: (businessCode: string, username: string, pin: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const { signInOffline, ...auth } = useAuth();
-  return <AuthContext.Provider value={{ ...auth, signInOffline }}>{children}</AuthContext.Provider>;
+  const { signInOffline, signInOfflineCashier, ...auth } = useAuth();
+  return <AuthContext.Provider value={{ ...auth, signInOffline, signInOfflineCashier }}>{children}</AuthContext.Provider>;
 };
 
 export const useAuthContext = () => {

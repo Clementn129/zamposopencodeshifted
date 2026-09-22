@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, LogOut, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText, LayoutGrid, Truck } from "lucide-react";
+import { ArrowLeft, LogOut, Minus, Plus, Search, ShoppingCart, Trash2, Percent, DollarSign, Users, Briefcase, FileText, LayoutGrid, Truck, ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,16 +17,20 @@ import ReceiptModal from "@/components/ReceiptModal";
 import LockScreen from "@/components/LockScreen";
 import QuotationTab from "@/components/QuotationTab";
 import DeliveryNoteTab from "@/components/DeliveryNoteTab";
+import InvoiceTab from "@/components/InvoiceTab";
+import { InvoicePrefill } from "@/components/InvoiceForm";
 import MenuModifierPicker, { ModifierPick } from "@/components/MenuModifierPicker";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useBusiness } from "@/hooks/useBusiness";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
 import { useProducts } from "@/hooks/useProducts";
 import { useSalesSync } from "@/hooks/useSalesSync";
+import { usePendingOpsSync } from "@/hooks/usePendingOpsSync";
+import { useDownstreamSync } from "@/hooks/useDownstreamSync";
 import { useBusinessType } from "@/hooks/useBusinessType";
 import { useMenuModifiers } from "@/hooks/useMenuModifiers";
 import { useDiningTables, DiningTable } from "@/hooks/useDiningTables";
-import { saveOfflineSale, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem, queuePendingOp, getCachedDebtors, cacheDebtors, getCachedImageBlob, computeLineId } from "@/lib/offlineStorage";
+import { saveOfflineSale, markSaleAsSynced, updateCachedProductStock, generateOfflineId, clearCart, getCart, saveCartItem, removeCartItem, queuePendingOp, getCachedDebtors, cacheDebtors, getCachedImageBlob, computeLineId } from "@/lib/offlineStorage";
 import { calculateTax, TaxCategory } from "@/lib/tax";
 import { supabase } from "@/integrations/supabase/client";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -83,6 +87,8 @@ const Pos = () => {
 
   const { activeProducts, isLoading: productsLoading, isOnline, refetch: refetchProducts } = useProducts(business?.id);
   const { isSyncing, pendingCount, lastSyncError, syncNow } = useSalesSync(business?.id);
+  const { failedOps, retryFailedOps, clearFailedOps, syncNow: syncOpsNow } = usePendingOpsSync(business?.id);
+  const { isPulling, pullNow } = useDownstreamSync(business?.id);
   const { labels, isService, isRestaurant } = useBusinessType(business?.id, business?.businessType);
   const { groups: modifierGroups, modifiersByGroup, groupIdsByProduct, isLoading: modifiersLoading } = useMenuModifiers(business?.id);
 
@@ -99,6 +105,7 @@ const Pos = () => {
     customerPhone: string | null;
     items: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; lineTotal: number }>;
   } | null>(null);
+  const [invPrefill, setInvPrefill] = useState<InvoicePrefill | null>(null);
 
   // Discount state
   const [saleDiscountType, setSaleDiscountType] = useState<'percentage' | 'amount' | null>(null);
@@ -407,7 +414,7 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
       }),
       subtotal, total, discountAmount,
       discountType: saleDiscountType,
-      paymentMethod, createdAt, synced: isOnline,
+      paymentMethod, createdAt, synced: false,
       taxAmount: tax?.taxAmount || 0,
       taxableAmount: tax?.taxableAmount || 0,
       zeroRatedAmount: tax?.zeroRatedAmount || 0,
@@ -421,38 +428,54 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
     };
 
     try {
+      // OFFLINE-FIRST: persist every sale to the local DB BEFORE touching the
+      // network, so a failed write can never lose a sale. The server RPC is
+      // idempotent on (business_id, offline_id), so retries never duplicate.
+      await saveOfflineSale(salePayload);
+      for (const line of cart) {
+        const p = activeProducts.find((x) => x.id === line.productId);
+        await updateCachedProductStock(line.productId, Math.max(0, Number(p?.stock ?? 0) - line.quantity));
+      }
+
+      let returnedSaleId: string | null = null;
+      let pushFailed = false;
+      let syncNote = "";
+
       if (isOnline) {
-        const { data: returnedSaleId, error: saleErr } = await (supabase.rpc as any)("sync_offline_sale", {
-          p_business_id: business.id,
-          p_offline_id: saleId,
-          p_items: salePayload.items,
-          p_subtotal: subtotal,
-          p_total: total,
-          p_discount_amount: discountAmount,
-          p_discount_type: saleDiscountType,
-          p_payment_method: paymentMethod,
-          p_created_at: createdAt,
-          p_tax_amount: salePayload.taxAmount,
-          p_taxable_amount: salePayload.taxableAmount,
-          p_zero_rated_amount: salePayload.zeroRatedAmount,
-          p_exempt_amount: salePayload.exemptAmount,
-          p_customer_name: salePayload.customerName,
-          p_customer_tpin: salePayload.customerTpin,
-          p_amount_paid: amountPaidNow,
-          p_due_date: dueDate || null,
-          p_customer_phone: salePayload.customerPhone,
-          p_table_id: selectedTable?.id ?? null,
-        });
-
-        if (saleErr) throw saleErr;
-
-        for (const line of cart) {
-          const p = activeProducts.find((x) => x.id === line.productId);
-          await updateCachedProductStock(line.productId, Math.max(0, Number(p?.stock ?? 0) - line.quantity));
+        try {
+          const { data: rid, error: saleErr } = await (supabase.rpc as any)("sync_offline_sale", {
+            p_business_id: business.id,
+            p_offline_id: saleId,
+            p_items: salePayload.items,
+            p_subtotal: subtotal,
+            p_total: total,
+            p_discount_amount: discountAmount,
+            p_discount_type: saleDiscountType,
+            p_payment_method: paymentMethod,
+            p_created_at: createdAt,
+            p_tax_amount: salePayload.taxAmount,
+            p_taxable_amount: salePayload.taxableAmount,
+            p_zero_rated_amount: salePayload.zeroRatedAmount,
+            p_exempt_amount: salePayload.exemptAmount,
+            p_customer_name: salePayload.customerName,
+            p_customer_tpin: salePayload.customerTpin,
+            p_amount_paid: amountPaidNow,
+            p_due_date: dueDate || null,
+            p_customer_phone: salePayload.customerPhone,
+            p_table_id: selectedTable?.id ?? null,
+          });
+          if (saleErr) throw saleErr;
+          returnedSaleId = (rid as string | null) ?? null;
+          await markSaleAsSynced(saleId);
+        } catch (e) {
+          console.warn("Immediate sale sync failed — will retry in background:", e);
+          pushFailed = true;
+          syncNote = "Sale saved on this device — will sync when the connection is stable.";
         }
+      }
 
-        // Create debtor record linked to the credit sale
-        if (isCredit && returnedSaleId) {
+      if (isCredit) {
+        if (isOnline && returnedSaleId && !pushFailed) {
           const { error: debtorErr } = await supabase.from("debtors").insert({
             business_id: business.id,
             sale_id: returnedSaleId,
@@ -465,64 +488,62 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
             due_date: dueDate || null,
           });
           if (debtorErr) console.error("Failed to create debtor:", debtorErr);
-        }
-
-        toast({
-          title: paymentMode === "credit" ? "Credit sale recorded" : paymentMode === "partial" ? "Partial sale recorded" : "Sale completed",
-          description: paymentMode === "full" ? "Stock updated." : `Balance owed: ZMW ${(total - amountPaidNow).toFixed(2)}`,
-        });
-      } else if (isCredit) {
-        await queuePendingOp({
-          id: generateOfflineId(),
-          businessId: business.id,
-          type: 'debtor_create',
-          payload: {
-            offlineId: saleId,
-            items: salePayload.items,
-            total,
-            subtotal,
-            discountAmount,
-            discountType: saleDiscountType,
-            paymentMethod,
-            taxAmount: tax?.taxAmount || 0,
-            taxableAmount: tax?.taxableAmount || 0,
-            zeroRatedAmount: tax?.zeroRatedAmount || 0,
-            exemptAmount: tax?.exemptAmount || 0,
+        } else {
+          // Queue the debtor (and linked sale) so it is created exactly once when online.
+          await queuePendingOp({
+            id: generateOfflineId(),
+            businessId: business.id,
+            type: 'debtor_create',
+            payload: {
+              offlineId: saleId,
+              items: salePayload.items,
+              total,
+              subtotal,
+              discountAmount,
+              discountType: saleDiscountType,
+              paymentMethod,
+              taxAmount: tax?.taxAmount || 0,
+              taxableAmount: tax?.taxableAmount || 0,
+              zeroRatedAmount: tax?.zeroRatedAmount || 0,
+              exemptAmount: tax?.exemptAmount || 0,
+              customerName: customerName.trim(),
+              customerPhone: customerPhone.trim() || null,
+              notes: creditNotes.trim() || null,
+              dueDate: dueDate || null,
+              createdAt,
+              amountPaid: amountPaidNow,
+              tableId: salePayload.tableId,
+            },
+            createdAt,
+          });
+          const existingDebtors = await getCachedDebtors(business.id);
+          await cacheDebtors([...existingDebtors, {
+            id: saleId,
+            businessId: business.id,
             customerName: customerName.trim(),
             customerPhone: customerPhone.trim() || null,
-            notes: creditNotes.trim() || null,
-            dueDate: dueDate || null,
-            createdAt,
+            amountOwed: total,
             amountPaid: amountPaidNow,
-            tableId: salePayload.tableId,
-          },
-          createdAt,
-        });
-        const existingDebtors = await getCachedDebtors(business.id);
-        await cacheDebtors([...existingDebtors, {
-          id: saleId,
-          businessId: business.id,
-          customerName: customerName.trim(),
-          customerPhone: customerPhone.trim() || null,
-          amountOwed: total,
-          amountPaid: amountPaidNow,
-          status: amountPaidNow > 0 ? 'partially_paid' : 'unpaid',
-          notes: creditNotes.trim() || null,
-          createdAt,
-          dueDate: dueDate || null,
-        }]);
-        await saveOfflineSale(salePayload);
-        for (const line of cart) {
-          const p = activeProducts.find((x) => x.id === line.productId);
-          await updateCachedProductStock(line.productId, Math.max(0, Number(p?.stock ?? 0) - line.quantity));
+            status: amountPaidNow > 0 ? 'partially_paid' : 'unpaid',
+            notes: creditNotes.trim() || null,
+            createdAt,
+            dueDate: dueDate || null,
+          }]);
         }
+      }
+
+      if (isOnline) {
+        toast({
+          title: paymentMode === "credit" ? "Credit sale recorded" : paymentMode === "partial" ? "Partial sale recorded" : "Sale completed",
+          description: pushFailed
+            ? syncNote
+            : paymentMode === "full"
+              ? "Stock updated."
+              : `Balance owed: ZMW ${(total - amountPaidNow).toFixed(2)}`,
+        });
+      } else if (isCredit) {
         toast({ title: "Credit sale saved offline", description: "Will sync when online." });
       } else {
-        await saveOfflineSale(salePayload);
-        for (const line of cart) {
-          const p = activeProducts.find((x) => x.id === line.productId);
-          await updateCachedProductStock(line.productId, Math.max(0, Number(p?.stock ?? 0) - line.quantity));
-        }
         toast({ title: "Saved offline", description: "Sale will sync when online." });
       }
 
@@ -622,6 +643,84 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
     }
   };
 
+  const handleCreateInvoiceFromQuotation = async (quotationId: string) => {
+    try {
+      const { data: qData, error: qErr } = await supabase
+        .from('quotations')
+        .select('customer_name, customer_phone, customer_email, customer_tpin')
+        .eq('id', quotationId)
+        .single();
+      if (qErr || !qData) {
+        toast({ variant: "destructive", title: "Error", description: "Quotation not found" });
+        return;
+      }
+      const { data: items, error: iErr } = await supabase
+        .from('quotation_items')
+        .select('product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total')
+        .eq('quotation_id', quotationId);
+      if (iErr) throw iErr;
+
+      setInvPrefill({
+        quotationId,
+        customerName: qData.customer_name ?? '',
+        customerPhone: qData.customer_phone ?? '',
+        customerEmail: qData.customer_email ?? '',
+        customerTpin: qData.customer_tpin ?? '',
+        items: (items ?? []).map((i) => ({
+          productId: i.product_id ?? '',
+          productName: i.product_name,
+          unitPrice: Number(i.unit_price),
+          quantity: Number(i.quantity),
+          discountType: i.discount_type ?? null,
+          discountValue: Number(i.discount_value),
+          lineTotal: Number(i.line_total),
+        })),
+      });
+      setActiveTab("invoices");
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message });
+    }
+  };
+
+  const handleCreateInvoiceFromDeliveryNote = async (deliveryNoteId: string) => {
+    try {
+      const { data: dData, error: dErr } = await supabase
+        .from('delivery_notes')
+        .select('customer_name, customer_phone')
+        .eq('id', deliveryNoteId)
+        .single();
+      if (dErr || !dData) {
+        toast({ variant: "destructive", title: "Error", description: "Delivery note not found" });
+        return;
+      }
+      const { data: items, error: iErr } = await supabase
+        .from('delivery_note_items')
+        .select('product_id, product_name, quantity, unit_price, line_total')
+        .eq('delivery_note_id', deliveryNoteId);
+      if (iErr) throw iErr;
+
+      setInvPrefill({
+        deliveryNoteId,
+        customerName: dData.customer_name ?? '',
+        customerPhone: dData.customer_phone ?? '',
+        customerEmail: '',
+        customerTpin: '',
+        items: (items ?? []).map((i) => ({
+          productId: i.product_id ?? '',
+          productName: i.product_name,
+          unitPrice: Number(i.unit_price),
+          quantity: Number(i.quantity),
+          discountType: null,
+          discountValue: 0,
+          lineTotal: Number(i.line_total),
+        })),
+      });
+      setActiveTab("invoices");
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message });
+    }
+  };
+
   // Only block on initial loading. Once business+products are loaded, never
   // unmount on background refetches — that causes any open view (e.g. a
   // quotation detail) to disappear and look like a page reload.
@@ -634,7 +733,26 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
   return (
     <>
       <ConnectionStatus />
-      <SyncStatusBanner isOnline={isOnline} isSyncing={isSyncing} pendingCount={pendingCount} lastSyncError={lastSyncError} />
+      <SyncStatusBanner
+        isOnline={isOnline}
+        isSyncing={isSyncing}
+        isPulling={isPulling}
+        pendingCount={pendingCount}
+        lastSyncError={lastSyncError}
+        failedCount={failedOps.length}
+        failedDetail={failedOps[0]?.lastError ?? null}
+        onRetryFailed={() => {
+          void retryFailedOps(failedOps.map((op) => op.id));
+        }}
+        onClearFailed={() => {
+          void clearFailedOps(failedOps.map((op) => op.id));
+        }}
+        onSyncNow={() => {
+          void syncNow();
+          void syncOpsNow();
+          void pullNow();
+        }}
+      />
       <MenuModifierPicker
         open={!!modifierProduct}
         product={modifierProduct}
@@ -763,6 +881,9 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
               </TabsTrigger>
               <TabsTrigger value="delivery-notes" className="flex items-center gap-1.5">
                 <Truck className="h-4 w-4" /> Delivery Notes
+              </TabsTrigger>
+              <TabsTrigger value="invoices" className="flex items-center gap-1.5">
+                <ReceiptText className="h-4 w-4" /> Invoices
               </TabsTrigger>
             </TabsList>
 
@@ -1116,6 +1237,7 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                 isService={isService}
                 onConvertToSale={handleConvertQuotation}
                 onCreateDeliveryNote={handleCreateDeliveryNoteFromQuotation}
+                onCreateInvoice={handleCreateInvoiceFromQuotation}
               />
             </TabsContent>
 
@@ -1138,6 +1260,32 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
                     : undefined
                 }
                 onClearQuotation={() => setDnQuotation(null)}
+                onCreateInvoice={handleCreateInvoiceFromDeliveryNote}
+              />
+            </TabsContent>
+
+            <TabsContent value="invoices">
+              <InvoiceTab
+                businessId={business.id}
+                businessName={business.name}
+                businessDetails={{
+                  phone: business.phone,
+                  email: business.email,
+                  address: business.address,
+                  logoUrl: business.logoUrl,
+                  tpin: business.tpin,
+                  taxMode: business.taxMode,
+                  vatRate: business.vatRate,
+                  customTaxName: business.customTaxName,
+                  customTaxRate: business.customTaxRate,
+                }}
+                products={activeProducts}
+                isService={isService}
+                prefill={invPrefill}
+                onClearPrefill={() => setInvPrefill(null)}
+                onInvoicePaid={() => {
+                  void refetchProducts();
+                }}
               />
             </TabsContent>
           </Tabs>

@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, Printer, CheckCircle, Calendar, MapPin, User, Car, FileText } from "lucide-react";
+import { ArrowLeft, Download, Printer, CheckCircle, Calendar, MapPin, User, Car, FileText, ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -11,6 +11,7 @@ interface DeliveryNoteViewProps {
   businessDetails: { phone?: string | null; email?: string | null; address?: string | null; logoUrl?: string | null };
   onBack: () => void;
   onMarkDelivered: (id: string) => void;
+  onCreateInvoice?: () => void;
 }
 
 const statusConfig: Record<string, { label: string; className: string }> = {
@@ -18,7 +19,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   delivered: { label: 'Delivered', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
 };
 
-const DeliveryNoteView = ({ deliveryNote, businessName, businessDetails, onBack, onMarkDelivered }: DeliveryNoteViewProps) => {
+const DeliveryNoteView = ({ deliveryNote, businessName, businessDetails, onBack, onMarkDelivered, onCreateInvoice }: DeliveryNoteViewProps) => {
   const items = deliveryNote.items || [];
   const status = statusConfig[deliveryNote.status] || statusConfig.pending;
   const total = items.reduce((s, i) => s + i.lineTotal, 0);
@@ -240,6 +241,11 @@ const DeliveryNoteView = ({ deliveryNote, businessName, businessDetails, onBack,
           {deliveryNote.status === 'pending' && (
             <Button size="sm" className="bg-success text-success-foreground hover:bg-success/90" onClick={() => onMarkDelivered(deliveryNote.id)}>
               <CheckCircle className="h-4 w-4 mr-1" /> Mark Delivered
+            </Button>
+          )}
+          {onCreateInvoice && (
+            <Button variant="outline" size="sm" onClick={onCreateInvoice}>
+              <ReceiptText className="h-4 w-4 mr-1" /> Invoice
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={handleDownload}><Download className="h-4 w-4 mr-1" /> PDF</Button>
