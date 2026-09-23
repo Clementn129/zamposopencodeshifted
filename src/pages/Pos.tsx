@@ -872,17 +872,17 @@ const addToCart = async (productId: string, opts?: { modifiers?: CartLine['modif
 
         <main className="p-4 max-w-4xl mx-auto">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-4">
-              <TabsTrigger value="sale" className="flex items-center gap-1.5">
+            <TabsList className="mb-4 w-full justify-start overflow-x-auto md:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <TabsTrigger value="sale" className="flex items-center gap-1.5 shrink-0">
                 <ShoppingCart className="h-4 w-4" /> New Sale
               </TabsTrigger>
-              <TabsTrigger value="quotations" className="flex items-center gap-1.5">
+              <TabsTrigger value="quotations" className="flex items-center gap-1.5 shrink-0">
                 <FileText className="h-4 w-4" /> Quotations
               </TabsTrigger>
-              <TabsTrigger value="delivery-notes" className="flex items-center gap-1.5">
+              <TabsTrigger value="delivery-notes" className="flex items-center gap-1.5 shrink-0">
                 <Truck className="h-4 w-4" /> Delivery Notes
               </TabsTrigger>
-              <TabsTrigger value="invoices" className="flex items-center gap-1.5">
+              <TabsTrigger value="invoices" className="flex items-center gap-1.5 shrink-0">
                 <ReceiptText className="h-4 w-4" /> Invoices
               </TabsTrigger>
             </TabsList>
