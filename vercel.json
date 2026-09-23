@@ -1,8 +1,5 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": "vite",
-  "redirects": [
-    { "source": "/(.*)", "destination": "https://zampos.mwilaclement129.workers.dev/$1", "permanent": true }
-  ]
+  "framework": "vite"
 }

@@ -195,20 +195,20 @@ const Dashboard = () => {
       <div className="min-h-screen bg-background safe-area-inset">
         {/* Header */}
         <header className="bg-card border-b border-border px-4 py-4">
-          <div className="flex items-center justify-between max-w-4xl mx-auto">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
+          <div className="flex items-center justify-between gap-2 flex-wrap max-w-4xl mx-auto">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shrink-0">
                 <Store className="w-5 h-5 text-primary-foreground" />
               </div>
-              <div>
-                <h1 className="font-display font-bold text-lg">{business.name}</h1>
+              <div className="min-w-0">
+                <h1 className="font-display font-bold text-lg truncate">{business.name}</h1>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">{business.paymentCode}</span>
                   <button onClick={copyPaymentCode}><Copy className="w-3 h-3 text-muted-foreground" /></button>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
               <BranchSwitcher />
               {getStatusBadge()}
             </div>
